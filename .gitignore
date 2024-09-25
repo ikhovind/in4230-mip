@@ -5,3 +5,5 @@ ping_server
 ping_client
 cmake-build-debug
 .idea/
+*.o
+*.out

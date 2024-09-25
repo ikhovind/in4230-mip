@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <sys/socket.h>
 #include <linux/if_packet.h>
+#include "../packet_builder/mip_builder.h"
 
 #define BUF_SIZE 1450
 
@@ -21,6 +22,7 @@ struct ether_frame {
 void get_mac_from_interface(struct sockaddr_ll *so_name);
 int send_raw_packet(int sd, struct sockaddr_ll *so_name, uint8_t *buf, size_t len);
 int recv_raw_packet(int sd, uint8_t *buf, size_t len);
+int broadcast(mip_pdu* broadcast_pdu);
 
 
 

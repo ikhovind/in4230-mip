@@ -213,7 +213,7 @@ void server(char* socket_name)
 	exit(EXIT_SUCCESS);
 }
 
-void client(char* socket_name)
+void send_message(char* socket_name, mip_ping_sdu* mip_ping_sdu)
 {
 	struct sockaddr_un addr;
 	int	   sd, rc;
@@ -236,19 +236,17 @@ void client(char* socket_name)
 		exit(EXIT_FAILURE);
 	}
 
-	printf("\n*** WELCOME TO IN3230/4230 CHAT ***\n"
-	       "* Please, Be Kind & Polite! *\n");
+	size_t mip_ping_sdu_size = sizeof(*mip_ping_sdu) + strlen(mip_ping_sdu->message);
 
-	do {
-		memset(buf, 0, sizeof(buf));
+	size_t serialized_size = 0;
+	uint8_t* serialized = serialize_mip_ping_sdu(mip_ping_sdu, &serialized_size);
+	rc = write(sd, serialized, serialized_size);
 
-		fgets(buf, sizeof(buf), stdin);
+	free(serialized);
 
-		rc = write(sd, buf, strlen(buf));
-		if (rc < 0) {
-			perror("write");
-			close(sd);
-			exit(EXIT_FAILURE);
-		}
-	} while (1);
+	if (rc < 0) {
+		perror("write");
+		close(sd);
+		exit(EXIT_FAILURE);
+	}
 }

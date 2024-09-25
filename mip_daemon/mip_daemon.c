@@ -13,8 +13,42 @@
 #include <sys/epoll.h>	/* epoll */
 #include <sys/socket.h>	/* sockets operations */
 #include <sys/un.h>	/* definitions for UNIX domain sockets */
+#include <stdint.h>
+#include <linux/if_packet.h>	/* AF_PACKET */
+#include <net/ethernet.h>	/* ETH_* */
+#include <arpa/inet.h>	/* htons */
+
 
 #include "mip_daemon.h"
+
+#include "../packet_builder/mip_builder.h"
+#include "../cache/arp_cache.h"
+#include "../network_interface/network_util.h"
+
+static uint8_t mip_address;
+static arp_cache cache;
+
+
+/*
+ * This function gets a pointer to a struct sockaddr_ll
+ * and fills it with necessary address info from the interface device.
+ */
+int raw_socket()
+{
+	int	raw_sock;
+
+	short unsigned int protocol;
+	protocol = 0x88b5;
+
+	/* Set up a raw AF_PACKET socket without ethertype filtering */
+	raw_sock = socket(AF_PACKET, SOCK_RAW, htons(protocol));
+	if (raw_sock == -1) {
+		perror("socket");
+		return -1;
+	}
+
+	return raw_sock;
+}
 
 /**
  * Prepare (create, bind, listen) the server listening socket
@@ -68,7 +102,6 @@ static int prepare_server_sock(char* socket_upper)
 	 * implementations have additional (nonstandard) fields in
 	 * the structure.
 	 */
-
 	memset(&addr, 0, sizeof(struct sockaddr_un));
 
 	/* 2. Bind socket to socket name. */
@@ -101,7 +134,6 @@ static int prepare_server_sock(char* socket_upper)
 	 * So while one request is being processed other requests
 	 * can be waiting.
 	 */
-
 	rc = listen(sd, MAX_CONNS);
 	if (rc == -1) {
 		perror("listen()");
@@ -129,9 +161,39 @@ static int add_to_epoll_table(int efd, struct epoll_event *ev, int fd)
 	return rc;
 }
 
-static void handle_client(int fd)
+static void send_mip_arp(uint8_t desired_address) {
+	mip_arp_sdu arp_sdu;
+	arp_sdu.type = ARP_REQUEST_TYPE;
+	arp_sdu.mip_address = desired_address;
+	mip_pdu mip_pdu;
+
+	build_mip_pdu(&mip_pdu, &arp_sdu, mip_address, 1, ARP_SDU_TYPE);
+	print_mip_pdu(&mip_pdu);
+	broadcast(&mip_pdu);
+}
+
+static int forward_received_ping(mip_ping_sdu* mip_ping_sdu) {
+	mip_pdu mip_pdu;
+	build_mip_pdu(&mip_pdu, mip_ping_sdu, mip_address, 1, PING_SDU_TYPE);
+	uint8_t* dest_mac = get_mac_address(&cache, mip_pdu.header.dest_address);
+	if (dest_mac == NULL) {
+		printf("No MAC address found for MIP address %d\n", mip_pdu.header.dest_address);
+		send_mip_arp(mip_pdu.header.dest_address);
+		// try again after ARP
+		dest_mac = get_mac_address(&cache, mip_pdu.header.dest_address);
+		if (dest_mac == NULL) {
+			printf("ERROR: MIP ARP did not work\n");
+			exit(EXIT_FAILURE);
+		}
+	}
+	printf("found MAC address for MIP address\n");
+	return 1;
+
+}
+
+static mip_ping_sdu* handle_client(int fd)
 {
-	char buf[256];
+	uint8_t buf[256];
 	int rc;
 
 	/* The memset() function fills the first 'sizeof(buf)' bytes
@@ -145,36 +207,67 @@ static void handle_client(int fd)
 	rc = read(fd, buf, sizeof(buf));
 	if (rc <= 0) {
 		close(fd);
-		printf("<%d> left the chat...\n", fd);
-		return;
+		return NULL;
 	}
+	mip_ping_sdu* deserialized_sdu = deserialize_mip_ping_sdu(buf);
+	print_mip_ping_sdu(deserialized_sdu);
 
-	printf("<%d>: %s\n", fd, buf);
+	return deserialized_sdu;
+}
+
+static void handle_broadcast(int fd)
+{
+	uint8_t buf[256];
+	int rc;
+
+	/* The memset() function fills the first 'sizeof(buf)' bytes
+	 * of the memory area pointed to by 'buf' with the constant byte 0.
+	 */
+	memset(buf, 0, sizeof(buf));
+
+	/* read() attempts to read up to 'sizeof(buf)' bytes from file
+	 * descriptor fd into the buffer starting at buf.
+	 */
+	rc = read(fd, buf, sizeof(buf));
+	if (rc <= 0) {
+		close(fd);
+		exit(EXIT_FAILURE);
+	}
+	mip_pdu pdu;
+	deserialize_mip_pdu(&pdu, buf);
+	printf("Received broadcast\n");
+	print_mip_pdu(&pdu);
 }
 
 void server(char* socket_upper)
 {
 	struct epoll_event ev, events[MAX_EVENTS];
-	int	   sd, accept_sd, epollfd, rc;
+	int	   unix_sd, raw_sd, accept_sd, epollfd, rc;
 
 	printf("\n*** IN3230 Multiclient chat server is running! ***\n"
 	       "* Waiting for users to connect... *\n\n");
 
 	/* Call the method to create, bind and listen to the server socket */
-	sd = prepare_server_sock(socket_upper);
+	unix_sd = prepare_server_sock(socket_upper);
+	raw_sd = raw_socket();
 
 	/* Create the main epoll file descriptor */
 	epollfd = epoll_create1(0);
 	if (epollfd == -1) {
 		perror("epoll_create1");
-		close(sd);
+		close(unix_sd);
 		exit(EXIT_FAILURE);
 	}
 
 	/* Add the main listening socket to epoll table */
-	rc = add_to_epoll_table(epollfd, &ev, sd);
+	rc = add_to_epoll_table(epollfd, &ev, unix_sd);
 	if (rc == -1) {
-		close(sd);
+		close(unix_sd);
+		exit(EXIT_FAILURE);
+	}
+	rc = add_to_epoll_table(epollfd, &ev, raw_sd);
+	if (rc == -1) {
+		close(raw_sd);
 		exit(EXIT_FAILURE);
 	}
 
@@ -182,33 +275,46 @@ void server(char* socket_upper)
 		rc = epoll_wait(epollfd, events, MAX_EVENTS, -1);
 		if (rc == -1) {
 			perror("epoll_wait");
-			close(sd);
+			close(unix_sd);
 			exit(EXIT_FAILURE);
-		} else if (events->data.fd == sd) {
-			/* someone is trying to connect() to the main listening
-			 * socket.
-			 */
-			accept_sd = accept(sd, NULL, NULL);
-			if (accept_sd == -1) {
-				perror("accept");
-				continue;
-			}
+		}
+		for (int i = 0; i < rc; ++i) {
+			if (events[i].data.fd == unix_sd) {
+				/* someone is trying to connect() to the main listening
+				 * socket.
+				 */
+				accept_sd = accept(unix_sd, NULL, NULL);
+				if (accept_sd == -1) {
+					perror("accept");
+					continue;
+				}
 
-			printf("<%d> joined the chat...\n", accept_sd);
+				printf("<%d> joined the chat...\n", accept_sd);
 
-			/* Add the new socket to epoll table */
-			rc = add_to_epoll_table(epollfd, &ev, accept_sd);
-			if (rc == -1) {
-				close(sd);
-				exit(EXIT_FAILURE);
+				/* Add the new socket to epoll table */
+				rc = add_to_epoll_table(epollfd, &ev, accept_sd);
+				if (rc == -1) {
+					close(unix_sd);
+					exit(EXIT_FAILURE);
+				}
+			} else if (events[i].data.fd == raw_sd) {
+				/* We have received a packet on the raw socket
+				 *
+				 * This means that it was a broadcast or a ping forwarded by a mipd
+				 */
+				printf("Received possible broadcast");
+				handle_broadcast(events[i].data.fd);
+			} else {
+				/* existing user is trying to send data (ping_client or ping_server) */
+				mip_ping_sdu* received_ping_sdu = handle_client(events[i].data.fd);
+				if (received_ping_sdu != NULL) {
+					forward_received_ping(received_ping_sdu);
+				}
 			}
-		} else {
-			/* existing user is trying to send data */
-			handle_client(events->data.fd);
 		}
 	}
 
-	close(sd);
+	close(unix_sd);
 
 	/* Unlink the socket. */
 	unlink(socket_upper);
@@ -249,6 +355,7 @@ int main(int argc, char **argv)
 		printf("Running in debug mode\n");
 	}
 	char* socket_upper = argv[pos_arg_start];
+	mip_address = atoi(argv[pos_arg_start + 1]);
 
 	printf("%p\n", argv);
 

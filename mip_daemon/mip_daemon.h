@@ -5,6 +5,7 @@
 #ifndef MIP_DAEMON_H
 #define MIP_DAEMON_H
 #include <stdint.h>
+#include "../network_interface/network_util.h"
 
 typedef struct mip_header {
     uint8_t dest_addr: 1;
@@ -31,5 +32,6 @@ typedef struct mip_arp_sdu {
  */
 
 void server(char* socket_name);
+int raw_socket();
 
 #endif //MIP_DAEMON_H

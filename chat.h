@@ -27,6 +27,8 @@
 #define MAX_CONNS 5   /* max. length of the pending connections queue */
 #define MAX_EVENTS 10 /* max. number of concurrent events to check */
 
+#include "./packet_builder/mip_builder.h"
+
 /*
  * We declare the signature of a function in the header file
  * and its definition in the source file.
@@ -36,5 +38,6 @@
 
 void server(char* socket_name);
 void client(char* socket_name);
+void send_message(char* socket_name, mip_ping_sdu* mip_ping_sdu);
 
 #endif /* _CHAT_H */
