@@ -41,7 +41,7 @@ mip_ping_sdu* deserialize_mip_ping_sdu(uint8_t* buffer);
 uint8_t* serialize_mip_pdu(mip_pdu* sdu, size_t* size);
 void deserialize_mip_pdu(mip_pdu* pdu, uint8_t* serial_pdu);
 void print_mip_ping_sdu(mip_ping_sdu* sdu);
-void build_mip_pdu(mip_pdu* pdu, void* sdu, uint8_t source_address, uint8_t ttl, uint8_t sdu_type);
+void build_mip_pdu(mip_pdu* pdu, void* sdu, uint8_t source_address, uint8_t dest_address, uint8_t ttl, uint8_t sdu_type);
 void print_mip_pdu(mip_pdu* pdu);
 void print_mip_arp_sdu(mip_arp_sdu* sdu);
 

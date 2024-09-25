@@ -20,6 +20,7 @@ struct ether_frame {
 } __attribute__((packed));
 
 void get_mac_from_interface(struct sockaddr_ll *so_name);
+void get_source_mac_address(int sockfd, const char *interface, unsigned char *mac);
 int send_raw_packet(int sd, struct sockaddr_ll *so_name, uint8_t *buf, size_t len);
 int recv_raw_packet(int sd, uint8_t *buf, size_t len);
 int broadcast(mip_pdu* broadcast_pdu);

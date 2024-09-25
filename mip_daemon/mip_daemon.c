@@ -38,7 +38,7 @@ int raw_socket()
 	int	raw_sock;
 
 	short unsigned int protocol;
-	protocol = 0x88b5;
+	protocol = 0x88B5;
 
 	/* Set up a raw AF_PACKET socket without ethertype filtering */
 	raw_sock = socket(AF_PACKET, SOCK_RAW, htons(protocol));
@@ -61,8 +61,8 @@ int raw_socket()
  */
 static int prepare_server_sock(char* socket_upper)
 {
-	struct sockaddr_un addr;
 	int sd = -1, rc = -1;
+	struct sockaddr_un addr;
 
 	/* 1. Create local UNIX socket of type SOCK_SEQPACKET. */
 
@@ -161,29 +161,74 @@ static int add_to_epoll_table(int efd, struct epoll_event *ev, int fd)
 	return rc;
 }
 
-static void send_mip_arp(uint8_t desired_address) {
+static void send_mip_arp(uint8_t dest_address, uint8_t arp_type) {
 	mip_arp_sdu arp_sdu;
-	arp_sdu.type = ARP_REQUEST_TYPE;
-	arp_sdu.mip_address = desired_address;
+	arp_sdu.type = arp_type;
+	if (arp_type == ARP_REQUEST_TYPE) {
+		// mip address to look up
+		arp_sdu.mip_address = dest_address;
+		mip_pdu mip_pdu;
+
+		build_mip_pdu(&mip_pdu, &arp_sdu, mip_address, dest_address, 1, ARP_SDU_TYPE);
+		print_mip_pdu(&mip_pdu);
+		broadcast(&mip_pdu);
+	}
+	else if (arp_type == ARP_RESPONSE_TYPE) {
+		// mip address that matched
+		arp_sdu.mip_address = mip_address;
+		mip_pdu mip_pdu;
+
+		build_mip_pdu(&mip_pdu, &arp_sdu, mip_address, dest_address, 1, ARP_SDU_TYPE);
+		print_mip_pdu(&mip_pdu);
+		broadcast(&mip_pdu);
+	}
+	else {
+		printf("Invalid ARP type\n");
+		exit(EXIT_FAILURE);
+	}
+}
+
+static void send_mip_arp_response(int sd, uint8_t dest_address, uint8_t* frame, struct sockaddr_ll *recv_addr) {
+	mip_arp_sdu arp_sdu;
+	arp_sdu.type = ARP_RESPONSE_TYPE;
+	arp_sdu.mip_address = mip_address;
 	mip_pdu mip_pdu;
 
-	build_mip_pdu(&mip_pdu, &arp_sdu, mip_address, 1, ARP_SDU_TYPE);
+	build_mip_pdu(&mip_pdu, &arp_sdu, mip_address, dest_address, 1, ARP_SDU_TYPE);
 	print_mip_pdu(&mip_pdu);
-	broadcast(&mip_pdu);
+	//broadcast(&mip_pdu);
+	size_t size = 0;
+	uint8_t* serial = serialize_mip_pdu(&mip_pdu, &size);
+
+	uint8_t* buffer = malloc(14 + size);
+	memcpy(buffer, frame, 14);
+	memcpy(buffer + 14, serial, size);
+	//get_mac_from_interface(&so_name);
+	//ssize_t sent_bytes = write(sd, serial, size, 0, (const struct sockaddr *)recv_addr, sizeof(*recv_addr));
+
+	printf("Sending mip as response\n");
+	print_mip_pdu(&mip_pdu);
+    ssize_t sent_bytes = sendto(sd, buffer, 14 + size, 0, (const struct sockaddr *)recv_addr, sizeof(*recv_addr));
+	free(buffer);
+	if (sent_bytes == -1) {
+		perror("sendto");
+		exit(EXIT_FAILURE);
+	};
+	printf("Attempt finsihed: %ld\n", sent_bytes);
 }
 
 static int forward_received_ping(mip_ping_sdu* mip_ping_sdu) {
 	mip_pdu mip_pdu;
-	build_mip_pdu(&mip_pdu, mip_ping_sdu, mip_address, 1, PING_SDU_TYPE);
+	build_mip_pdu(&mip_pdu, mip_ping_sdu, mip_address, mip_ping_sdu->mip_address, 1, PING_SDU_TYPE);
 	uint8_t* dest_mac = get_mac_address(&cache, mip_pdu.header.dest_address);
 	if (dest_mac == NULL) {
-		printf("No MAC address found for MIP address %d\n", mip_pdu.header.dest_address);
-		send_mip_arp(mip_pdu.header.dest_address);
+		printf("No MAC address found for MIP address %d, sending arp\n", mip_pdu.header.dest_address);
+		send_mip_arp(mip_pdu.header.dest_address, ARP_REQUEST_TYPE);
 		// try again after ARP
 		dest_mac = get_mac_address(&cache, mip_pdu.header.dest_address);
 		if (dest_mac == NULL) {
 			printf("ERROR: MIP ARP did not work\n");
-			exit(EXIT_FAILURE);
+			//exit(EXIT_FAILURE);
 		}
 	}
 	printf("found MAC address for MIP address\n");
@@ -205,6 +250,7 @@ static mip_ping_sdu* handle_client(int fd)
 	 * descriptor fd into the buffer starting at buf.
 	 */
 	rc = read(fd, buf, sizeof(buf));
+
 	if (rc <= 0) {
 		close(fd);
 		return NULL;
@@ -225,17 +271,63 @@ static void handle_broadcast(int fd)
 	 */
 	memset(buf, 0, sizeof(buf));
 
-	/* read() attempts to read up to 'sizeof(buf)' bytes from file
-	 * descriptor fd into the buffer starting at buf.
-	 */
-	rc = read(fd, buf, sizeof(buf));
+    struct sockaddr_ll recv_addr;
+    socklen_t addr_len = sizeof(recv_addr);
+    rc = recvfrom(fd, buf, sizeof(buf), 0, (struct sockaddr *)&recv_addr, &addr_len);
+
 	if (rc <= 0) {
 		close(fd);
 		exit(EXIT_FAILURE);
 	}
 	mip_pdu pdu;
-	deserialize_mip_pdu(&pdu, buf);
-	printf("Received broadcast\n");
+	deserialize_mip_pdu(&pdu, buf + 14);
+
+	uint8_t mac_dst[6];
+	uint8_t mac_src[6];
+	memcpy(mac_dst, buf, 6);
+	memcpy(mac_src, buf + 6, 6);
+
+	if (pdu.header.sdu_type == ARP_SDU_TYPE) {
+		if (((mip_arp_sdu*)pdu.sdu)->type == ARP_RESPONSE_TYPE) {
+			printf("Got arp response:\n");
+			insert_cache_index(&cache, pdu.header.source_address, mac_src);
+			printf("source address is: %d\n", pdu.header.source_address);
+			uint8_t *mac_src2 = get_mac_address(&cache, pdu.header.source_address);
+			printf("mac addr is\n");
+			for (int i = 0; i < 6; i++) {
+				printf("%02x \n", mac_src2[i]);
+			}
+			return;
+		}
+	}
+
+	// If broadcast then we first learn the MAC address of the sender
+	insert_cache_index(&cache, pdu.header.source_address, mac_src);
+
+	// Then we check if the sender is looking for us
+	if (pdu.header.dest_address == mip_address) {
+		printf("Received broadcast for us\n");
+
+		mip_arp_sdu arp_sdu;
+		arp_sdu.type = ARP_RESPONSE_TYPE;
+		arp_sdu.mip_address = mip_address;
+		mip_pdu arp_pdu;
+		build_mip_pdu(&arp_pdu, &arp_sdu, mip_address, pdu.header.source_address, 1, ARP_SDU_TYPE);
+		uint8_t frame[14];
+
+		get_mac_from_interface(&recv_addr);
+
+		memcpy(frame + 6, recv_addr.sll_addr, 6);
+
+		// copy the source MAC address into the destination field
+		memcpy(frame, buf + 6, 6);
+		frame[12] = 0x88;
+		frame[13] = 0xb5;
+		send_mip_arp_response(fd, pdu.header.source_address, frame, &recv_addr);
+	}
+	else {
+		printf("Received broadcast not for us, ignoring\n");
+	}
 	print_mip_pdu(&pdu);
 }
 
@@ -302,7 +394,7 @@ void server(char* socket_upper)
 				 *
 				 * This means that it was a broadcast or a ping forwarded by a mipd
 				 */
-				printf("Received possible broadcast");
+				printf("Received possible broadcast\n");
 				handle_broadcast(events[i].data.fd);
 			} else {
 				/* existing user is trying to send data (ping_client or ping_server) */

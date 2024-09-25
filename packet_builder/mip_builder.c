@@ -74,7 +74,7 @@ uint8_t* serialize_mip_pdu(mip_pdu* pdu, size_t* size) {
 }
 
 void deserialize_mip_pdu(mip_pdu* pdu, uint8_t* serial_pdu) {
-    pdu->header = *(mip_header*)(serial_pdu + 14);
+    pdu->header = *(mip_header*)(serial_pdu);
     if (pdu->header.sdu_type == PING_SDU_TYPE) {
         return;
     } if (pdu->header.sdu_type == ARP_SDU_TYPE) {
@@ -116,11 +116,11 @@ void print_mip_pdu(mip_pdu* pdu) {
     printf("}\n");
 }
 
-void build_mip_pdu(mip_pdu* pdu, void* sdu, uint8_t source_address, uint8_t ttl, uint8_t type) {
+void build_mip_pdu(mip_pdu* pdu, void* sdu, uint8_t source_address, uint8_t dest_address, uint8_t ttl, uint8_t type) {
     // Fill the MIP header
     if (type == PING_SDU_TYPE) {
         mip_ping_sdu* ping_sdu = (mip_ping_sdu*) sdu;
-        pdu->header.dest_address = ping_sdu->mip_address;
+        pdu->header.dest_address = dest_address;
         pdu->header.source_address = source_address;
         pdu->header.ttl = ttl;
         pdu->header.sdu_type = PING_SDU_TYPE;
@@ -133,9 +133,9 @@ void build_mip_pdu(mip_pdu* pdu, void* sdu, uint8_t source_address, uint8_t ttl,
         // currently only works for building request
         // can input dest_address and check if arp_sdu->mip_adress == source_address => it is a response
         mip_arp_sdu* arp_sdu = (mip_arp_sdu*) sdu;
-        arp_sdu->type = ARP_REQUEST_TYPE;
+        //arp_sdu->type = ARP_REQUEST_TYPE;
 
-        pdu->header.dest_address = arp_sdu->mip_address;
+        pdu->header.dest_address = dest_address;
         pdu->header.source_address = source_address;
         pdu->header.ttl = ttl;
         pdu->header.sdu_type = ARP_SDU_TYPE;
