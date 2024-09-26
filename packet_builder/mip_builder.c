@@ -52,7 +52,7 @@ mip_ping_sdu* deserialize_mip_ping_sdu(uint8_t* buffer) {
         perror("malloc");
         exit(EXIT_FAILURE);
     }
-    memcpy(sdu->message, buffer + sizeof(size) + sizeof(sdu->mip_address), message_len);
+    memcpy(sdu->message, buffer + 2, message_len);
     sdu->message[message_len] = '\0';
 
     return sdu;
@@ -60,7 +60,17 @@ mip_ping_sdu* deserialize_mip_ping_sdu(uint8_t* buffer) {
 
 uint8_t* serialize_mip_pdu(mip_pdu* pdu, size_t* size) {
     if (pdu->header.sdu_type == PING_SDU_TYPE) {
-        return 0;
+        mip_ping_sdu* ping_sdu = (mip_ping_sdu*)pdu->sdu;
+        uint8_t* test = malloc(sizeof(mip_header) + pdu->header.sdu_len);
+        memcpy(test, &pdu->header, sizeof(mip_header));
+        // memcpy(test + sizeof(mip_header), &ping_sdu->mip_address, sizeof(uint8_t));
+        // memcpy(test + sizeof(mip_header) + 1, ping_sdu->message, pdu->header.sdu_len - 1);
+        size_t ping_sdu_size = 0;
+        uint8_t* ping_sdu_serial = serialize_mip_ping_sdu(ping_sdu, &ping_sdu_size);
+        memcpy(test + sizeof(mip_header), ping_sdu_serial, ping_sdu_size);
+        //strcpy((char*)test + sizeof(mip_header), ping_sdu->message);
+        *size = sizeof(mip_header) + ping_sdu_size;
+        return test;
     }
     if (pdu->header.sdu_type == ARP_SDU_TYPE) {
         uint8_t* test = malloc(sizeof(mip_header) + sizeof(mip_arp_sdu));
@@ -76,19 +86,23 @@ uint8_t* serialize_mip_pdu(mip_pdu* pdu, size_t* size) {
 void deserialize_mip_pdu(mip_pdu* pdu, uint8_t* serial_pdu) {
     pdu->header = *(mip_header*)(serial_pdu);
     if (pdu->header.sdu_type == PING_SDU_TYPE) {
-        return;
+        pdu->sdu = deserialize_mip_ping_sdu(serial_pdu + sizeof(mip_header));
     } if (pdu->header.sdu_type == ARP_SDU_TYPE) {
         pdu->sdu = (mip_arp_sdu*)(serial_pdu + sizeof(mip_header));
     }
 }
 
-void print_mip_ping_sdu(mip_ping_sdu* sdu) {
+void print_mip_ping_sdu(mip_ping_sdu* sdu, size_t sdu_len) {
     if (!sdu) {
         return;
     }
     printf("ping SDU:\n");
     printf("{\n   mip_address: %d\n", sdu->mip_address);
-    printf("   message: %s\n}\n", sdu->message);
+    printf("   Message: ");
+    for (int i = 0; i < sdu_len - 1; ++i) {
+        printf("%c", sdu->message[i]);
+    }
+    printf("\n}\n");
 }
 
 void print_mip_arp_sdu(mip_arp_sdu* sdu) {
@@ -109,7 +123,7 @@ void print_mip_pdu(mip_pdu* pdu) {
     printf("   sdu_type: %d\n", pdu->header.sdu_type);
 
     if (pdu->header.sdu_type == PING_SDU_TYPE) {
-        print_mip_ping_sdu((mip_ping_sdu*)pdu->sdu);
+        print_mip_ping_sdu((mip_ping_sdu*)pdu->sdu, pdu->header.sdu_len);
     } else if (pdu->header.sdu_type == ARP_SDU_TYPE) {
         print_mip_arp_sdu((mip_arp_sdu*)pdu->sdu);
     }
@@ -126,6 +140,7 @@ void build_mip_pdu(mip_pdu* pdu, void* sdu, uint8_t source_address, uint8_t dest
         pdu->header.sdu_type = PING_SDU_TYPE;
 
         size_t sdu_len = sizeof(ping_sdu->mip_address) + strlen(ping_sdu->message);
+        printf("Building with sdu_len: %lu\n", sdu_len);
         pdu->header.sdu_len = sdu_len;
         pdu->sdu = ping_sdu;
     }

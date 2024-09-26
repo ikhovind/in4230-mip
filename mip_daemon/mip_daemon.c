@@ -170,6 +170,7 @@ static void send_mip_arp(uint8_t dest_address, uint8_t arp_type) {
 		mip_pdu mip_pdu;
 
 		build_mip_pdu(&mip_pdu, &arp_sdu, mip_address, dest_address, 1, ARP_SDU_TYPE);
+		printf("Sending broadcast message with pdu:\n");
 		print_mip_pdu(&mip_pdu);
 		broadcast(&mip_pdu);
 	}
@@ -179,6 +180,7 @@ static void send_mip_arp(uint8_t dest_address, uint8_t arp_type) {
 		mip_pdu mip_pdu;
 
 		build_mip_pdu(&mip_pdu, &arp_sdu, mip_address, dest_address, 1, ARP_SDU_TYPE);
+		printf("Sending broadcast response with pdu:\n");
 		print_mip_pdu(&mip_pdu);
 		broadcast(&mip_pdu);
 	}
@@ -195,6 +197,7 @@ static void send_mip_arp_response(int sd, uint8_t dest_address, uint8_t* frame, 
 	mip_pdu mip_pdu;
 
 	build_mip_pdu(&mip_pdu, &arp_sdu, mip_address, dest_address, 1, ARP_SDU_TYPE);
+	printf("Sending mip arp response with pdu:\n");
 	print_mip_pdu(&mip_pdu);
 	//broadcast(&mip_pdu);
 	size_t size = 0;
@@ -217,21 +220,75 @@ static void send_mip_arp_response(int sd, uint8_t dest_address, uint8_t* frame, 
 	printf("Attempt finsihed: %ld\n", sent_bytes);
 }
 
-static int forward_received_ping(mip_ping_sdu* mip_ping_sdu) {
-	mip_pdu mip_pdu;
-	build_mip_pdu(&mip_pdu, mip_ping_sdu, mip_address, mip_ping_sdu->mip_address, 1, PING_SDU_TYPE);
-	uint8_t* dest_mac = get_mac_address(&cache, mip_pdu.header.dest_address);
+static int forward_received_ping(mip_ping_sdu* mip_ping_sdu, int epoll_fd, int socket_fd) {
+	mip_pdu ping_pdu;
+	build_mip_pdu(&ping_pdu, mip_ping_sdu, mip_address, mip_ping_sdu->mip_address, 1, PING_SDU_TYPE);
+	uint8_t* dest_mac = get_mac_address(&cache, ping_pdu.header.dest_address);
+	struct sockaddr_ll recv_addr;
 	if (dest_mac == NULL) {
-		printf("No MAC address found for MIP address %d, sending arp\n", mip_pdu.header.dest_address);
-		send_mip_arp(mip_pdu.header.dest_address, ARP_REQUEST_TYPE);
+		printf("No MAC address found for MIP address %d, sending arp\n", ping_pdu.header.dest_address);
+		send_mip_arp(ping_pdu.header.dest_address, ARP_REQUEST_TYPE);
 		// try again after ARP
-		dest_mac = get_mac_address(&cache, mip_pdu.header.dest_address);
+		struct epoll_event events[MAX_EVENTS];
+		int rc = epoll_wait(epoll_fd, events, 1, -1);
+		if (rc == -1) {
+			perror("epoll_wait");
+			exit(EXIT_FAILURE);
+		}
+		uint8_t buf[50];
+		socklen_t addr_len = sizeof(recv_addr);
+
+		rc = recvfrom(socket_fd, buf, sizeof(buf), 0, (struct sockaddr *)&recv_addr, &addr_len);
+		if (rc < 0) {
+			close(socket_fd);
+			exit(EXIT_FAILURE);
+		}
+		mip_pdu arp_response_pdu;
+		deserialize_mip_pdu(&arp_response_pdu, buf + 14);
+		printf("arp response received\n");
+		print_mip_pdu(&arp_response_pdu);
+		uint8_t mac_response_source[6];
+		uint8_t mac_response_dest[6];
+		memcpy(mac_response_source, buf + 6, 6);
+		memcpy(mac_response_dest, buf, 6);
+		for (int i = 0; i < 6; ++i) {
+			printf("mac_response_dest[%d]: %02x\n", i, mac_response_dest[i]);
+			printf("mac_response_source[%d]: %02x\n", i, mac_response_source[i]);
+		}
+		insert_cache_index(&cache, arp_response_pdu.header.source_address, mac_response_source);
+		dest_mac = get_mac_address(&cache, ping_pdu.header.dest_address);
 		if (dest_mac == NULL) {
 			printf("ERROR: MIP ARP did not work\n");
-			//exit(EXIT_FAILURE);
+			exit(EXIT_FAILURE);
 		}
 	}
 	printf("found MAC address for MIP address\n");
+
+	size_t size = ping_pdu.header.sdu_len + sizeof(mip_header);
+	printf("frame size is: %ld\n", 14 + size);
+	uint8_t frame[14 + size];
+	memcpy(frame, dest_mac, 6);
+	get_mac_from_interface(&recv_addr);
+	frame[12] = 0x88;
+	frame[13] = 0xb5;
+	memcpy(frame + 6, recv_addr.sll_addr, 6);
+	memcpy(frame + 14, "hello", 5);
+	for (int i = 0; i < 14; i++) {
+		printf("frame[%d]: %02x\n", i, frame[i]);
+	}
+
+	uint8_t* serial = serialize_mip_pdu(&ping_pdu, &size);
+	printf("Serial address: %p\n", serial);
+	printf("serial size is: %ld\n", size);
+	memcpy(frame + 14, serial, size);
+	printf("is it here?\n");
+
+    ssize_t sent_bytes = sendto(socket_fd, frame, 14 + size, 0, (const struct sockaddr *)&recv_addr, sizeof(recv_addr));
+	if (sent_bytes == -1) {
+		perror("sendto");
+		exit(EXIT_FAILURE);
+	};
+	printf("Sent ping packet: %ld\n", sent_bytes);
 	return 1;
 
 }
@@ -256,7 +313,7 @@ static mip_ping_sdu* handle_client(int fd)
 		return NULL;
 	}
 	mip_ping_sdu* deserialized_sdu = deserialize_mip_ping_sdu(buf);
-	print_mip_ping_sdu(deserialized_sdu);
+	//print_mip_ping_sdu(deserialized_sdu, );
 
 	return deserialized_sdu;
 }
@@ -282,6 +339,7 @@ static void handle_broadcast(int fd)
 	mip_pdu pdu;
 	deserialize_mip_pdu(&pdu, buf + 14);
 
+
 	uint8_t mac_dst[6];
 	uint8_t mac_src[6];
 	memcpy(mac_dst, buf, 6);
@@ -299,6 +357,12 @@ static void handle_broadcast(int fd)
 			}
 			return;
 		}
+	}
+
+	if (pdu.header.sdu_type == PING_SDU_TYPE) {
+		printf("received ping\n");
+		print_mip_pdu(&pdu);
+		return;
 	}
 
 	// If broadcast then we first learn the MAC address of the sender
@@ -327,8 +391,8 @@ static void handle_broadcast(int fd)
 	}
 	else {
 		printf("Received broadcast not for us, ignoring\n");
+		print_mip_pdu(&pdu);
 	}
-	print_mip_pdu(&pdu);
 }
 
 void server(char* socket_upper)
@@ -400,7 +464,7 @@ void server(char* socket_upper)
 				/* existing user is trying to send data (ping_client or ping_server) */
 				mip_ping_sdu* received_ping_sdu = handle_client(events[i].data.fd);
 				if (received_ping_sdu != NULL) {
-					forward_received_ping(received_ping_sdu);
+					forward_received_ping(received_ping_sdu, epollfd, raw_sd);
 				}
 			}
 		}

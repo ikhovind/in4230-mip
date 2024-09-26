@@ -4,6 +4,7 @@ sender
 ping_server
 ping_client
 cmake-build-debug
+serialize
 .idea/
 *.o
 *.out
