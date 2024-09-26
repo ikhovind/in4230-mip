@@ -1,0 +1,4 @@
+[submodule "tests/Unity"]
+	path = tests/Unity
+	url = git@github.com:ThrowTheSwitch/Unity.git
+	ignore = dirty
