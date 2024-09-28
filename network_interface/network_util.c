@@ -19,6 +19,7 @@
 
 
 #include <errno.h>
+#include <arpa/inet.h>
 
 static uint8_t dst_addr[6];
 
@@ -118,8 +119,29 @@ int recv_raw_packet(int sd, uint8_t *buf, size_t len) {
 }
 
 
+void get_eth_interface(char* eth_interface) {
+    struct ifaddrs *interfaces, *temp;
+    int sockfd;
 
-#define INTERFACE "mipd-eth1"
+    // Get interface list
+    if (getifaddrs(&interfaces) == -1) {
+        perror("getifaddrs");
+        exit(EXIT_FAILURE);
+    }
+
+    // Loop through the list of interfaces
+    for (temp = interfaces; temp != NULL; temp = temp->ifa_next) {
+        if (temp->ifa_addr == NULL) continue;
+        // Check for AF_INET family (IPv4)
+        if (temp->ifa_addr->sa_family == AF_INET) {
+            char addr[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &((struct sockaddr_in *)temp->ifa_addr)->sin_addr, addr, INET_ADDRSTRLEN);
+            strcpy(eth_interface, temp->ifa_name);
+        }
+    }
+}
+
+#define INTERFACE "h1-eth0"
 #define BROADCAST_MAC "\xff\xff\xff\xff\xff\xff"
 
 int broadcast(mip_pdu* broadcast_pdu) {
@@ -151,7 +173,9 @@ int broadcast(mip_pdu* broadcast_pdu) {
     // Get the index of the network interface
     struct ifreq ifr;
 
-    strncpy(ifr.ifr_name, INTERFACE, IFNAMSIZ - 1);
+    char eth_interface[IFNAMSIZ];
+    get_eth_interface(eth_interface);
+    strncpy(ifr.ifr_name, eth_interface, strlen(eth_interface));
     if (ioctl(sockfd, SIOCGIFINDEX, &ifr) == -1) {
         perror("Failed to get interface index\n");
         close(sockfd);

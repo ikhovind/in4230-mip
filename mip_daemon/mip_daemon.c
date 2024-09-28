@@ -17,6 +17,8 @@
 #include <linux/if_packet.h>	/* AF_PACKET */
 #include <net/ethernet.h>	/* ETH_* */
 #include <arpa/inet.h>	/* htons */
+#include <signal.h>
+#include <bits/sigaction.h>
 
 
 #include "mip_daemon.h"
@@ -27,6 +29,23 @@
 
 static uint8_t mip_address;
 static arp_cache cache;
+char socket_name[256];
+
+int unix_sd;
+int raw_sd;
+
+// Clean up function to close the socket
+void cleanup(int signum) {
+	if (unix_sd != -1) {
+		close (unix_sd);
+		printf("Unix socket closed due to signal %d\n", signum);
+	}
+	if (raw_sd != -1) {
+		close(raw_sd);
+		printf("Raw socket closed due to signal %d\n", signum);
+	}
+	exit(signum);
+}
 
 
 /*
@@ -273,9 +292,6 @@ static int forward_received_ping(mip_ping_sdu* mip_ping_sdu, int epoll_fd, int s
 	frame[13] = 0xb5;
 	memcpy(frame + 6, recv_addr.sll_addr, 6);
 	memcpy(frame + 14, "hello", 5);
-	for (int i = 0; i < 14; i++) {
-		printf("frame[%d]: %02x\n", i, frame[i]);
-	}
 
 	uint8_t* serial = serialize_mip_pdu(&ping_pdu, &size);
 	printf("Serial address: %p\n", serial);
@@ -307,18 +323,17 @@ static mip_ping_sdu* handle_client(int fd)
 	 * descriptor fd into the buffer starting at buf.
 	 */
 	rc = read(fd, buf, sizeof(buf));
-
+	printf("rc is: %d\n", rc);
 	if (rc <= 0) {
 		close(fd);
 		return NULL;
 	}
 	mip_ping_sdu* deserialized_sdu = deserialize_mip_ping_sdu(buf);
-	//print_mip_ping_sdu(deserialized_sdu, );
 
 	return deserialized_sdu;
 }
 
-static void handle_broadcast(int fd)
+static void handle_broadcast(int fd, int unix_sd)
 {
 	uint8_t buf[256];
 	int rc;
@@ -362,6 +377,15 @@ static void handle_broadcast(int fd)
 	if (pdu.header.sdu_type == PING_SDU_TYPE) {
 		printf("received ping\n");
 		print_mip_pdu(&pdu);
+
+		mip_ping_sdu ping_sdu = {
+			.mip_address = pdu.header.source_address,
+			.message = ((mip_ping_sdu*) pdu.sdu)->message,
+		};
+
+		size_t size;
+		uint8_t* serial_sdu = serialize_mip_ping_sdu(&ping_sdu, &size);
+		write(unix_sd, serial_sdu, size);
 		return;
 	}
 
@@ -398,7 +422,17 @@ static void handle_broadcast(int fd)
 void server(char* socket_upper)
 {
 	struct epoll_event ev, events[MAX_EVENTS];
-	int	   unix_sd, raw_sd, accept_sd, epollfd, rc;
+	int	   accept_sd, epollfd, rc;
+
+	// Set up signal handler for SIGINT
+	struct sigaction sa;
+	sa.sa_handler = cleanup;
+	sigemptyset(&sa.sa_mask);
+	sa.sa_flags = 0;
+	if (sigaction(SIGINT, &sa, NULL) == -1) {
+		perror("sigaction");
+		exit(EXIT_FAILURE);
+	}
 
 	printf("\n*** IN3230 Multiclient chat server is running! ***\n"
 	       "* Waiting for users to connect... *\n\n");
@@ -459,10 +493,13 @@ void server(char* socket_upper)
 				 * This means that it was a broadcast or a ping forwarded by a mipd
 				 */
 				printf("Received possible broadcast\n");
-				handle_broadcast(events[i].data.fd);
+				printf("accept_sd: %d\n", accept_sd);
+				handle_broadcast(events[i].data.fd, accept_sd);
 			} else {
+				printf("received from this: %d\n", events[i].data.fd);
 				/* existing user is trying to send data (ping_client or ping_server) */
 				mip_ping_sdu* received_ping_sdu = handle_client(events[i].data.fd);
+				print_mip_ping_sdu(received_ping_sdu);
 				if (received_ping_sdu != NULL) {
 					forward_received_ping(received_ping_sdu, epollfd, raw_sd);
 				}
@@ -511,6 +548,7 @@ int main(int argc, char **argv)
 		printf("Running in debug mode\n");
 	}
 	char* socket_upper = argv[pos_arg_start];
+	strcpy(socket_name, socket_upper);
 	mip_address = atoi(argv[pos_arg_start + 1]);
 
 	printf("%p\n", argv);

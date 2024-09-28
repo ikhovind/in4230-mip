@@ -92,16 +92,13 @@ void deserialize_mip_pdu(mip_pdu* pdu, uint8_t* serial_pdu) {
     }
 }
 
-void print_mip_ping_sdu(mip_ping_sdu* sdu, size_t sdu_len) {
+void print_mip_ping_sdu(mip_ping_sdu* sdu) {
     if (!sdu) {
         return;
     }
     printf("ping SDU:\n");
     printf("{\n   mip_address: %d\n", sdu->mip_address);
-    printf("   Message: ");
-    for (int i = 0; i < sdu_len - 1; ++i) {
-        printf("%c", sdu->message[i]);
-    }
+    printf("   Message: %s\n", sdu->message);
     printf("\n}\n");
 }
 
@@ -123,7 +120,7 @@ void print_mip_pdu(mip_pdu* pdu) {
     printf("   sdu_type: %d\n", pdu->header.sdu_type);
 
     if (pdu->header.sdu_type == PING_SDU_TYPE) {
-        print_mip_ping_sdu((mip_ping_sdu*)pdu->sdu, pdu->header.sdu_len);
+        print_mip_ping_sdu((mip_ping_sdu*)pdu->sdu);
     } else if (pdu->header.sdu_type == ARP_SDU_TYPE) {
         print_mip_arp_sdu((mip_arp_sdu*)pdu->sdu);
     }

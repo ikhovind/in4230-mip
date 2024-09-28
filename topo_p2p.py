@@ -20,11 +20,8 @@ class MyTopo( Topo ):
         # Add hosts
         leftHost = self.addHost( 'h1' )
         rightHost = self.addHost( 'h2' )
-        mipd = self.addHost( 'mipd' )
 
-        # Add link
-        self.addLink( leftHost, rightHost )
-        self.addLink( leftHost, mipd )
-        self.addLink( mipd, rightHost )
+        self.addLink(leftHost, rightHost, bw=10, delay='10ms', loss=0.0, use_tbf=False)
+
 
 topos = { 'mytopo': ( lambda: MyTopo() ) }

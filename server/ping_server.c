@@ -7,9 +7,6 @@
 #include <unistd.h>       /* fgets */
 #include <string.h>       /* memset */
 #include <sys/socket.h>   /* socket */
-#include <sys/epoll.h>    /* epoll */
-#include <linux/if_packet.h> /* AF_PACKET */
-#include <arpa/inet.h>    /* htons */
 
 #include "../network_interface/network_util.h"
 #define MAX_EVENTS 10
@@ -17,88 +14,73 @@
 static uint8_t dst_addr[6];
 
 
-int main(int argc, char *argv[])
-{
-	struct	  sockaddr_ll so_name;
-	uint8_t	  buf[BUF_SIZE];
-	uint8_t	  out_buf[BUF_SIZE];
-	uint8_t	  username[16];
-	int	  raw_sock, rc;
+#include <sys/un.h>
 
-	struct epoll_event ev, events[MAX_EVENTS];
-	int epollfd;
+#define BUFFER_SIZE 1024
 
-	short unsigned int protocol = 0xFFFF;
+int main(int argc, char** argv) {
 
-	/* Set up a raw AF_PACKET socket without ethertype filtering */
-	raw_sock = socket(AF_PACKET, SOCK_RAW, htons(protocol));
-	if (raw_sock == -1) {
+	int opt;
+
+	while ((opt = getopt(argc, argv, "h")) != -1) {
+		switch (opt) {
+			case 'h':
+				printf("Usage: %s "
+				       "[-h] "
+				       "<socket_lower>", argv[0]);
+				exit(0);
+		}
+	}
+
+	uint8_t pos_arg_start = 1;
+	char* socket_lower = argv[pos_arg_start];
+
+
+	int client_fd;
+	struct sockaddr_un server_addr;
+	char buffer[BUFFER_SIZE] = "Hello, Server!";
+	char msg_buffer[BUFFER_SIZE];
+
+	client_fd = socket(AF_UNIX, SOCK_SEQPACKET, 0);
+	if (client_fd == -1) {
 		perror("socket");
-		return -1;
-	}
-
-	printf("\n(Waiting for sender to connect...)\n\n");
-	rc = recv_raw_packet(raw_sock, username, sizeof(username));
-	if (rc == -1) {
-		perror("recv_raw_packet");
-		return -1;
-	}
-
-	printf("%s knocked on the door...\n", username);
-
-	/* Fill the fields of so_name with info from interface */
-	get_mac_from_interface(&so_name);
-
-	epollfd = epoll_create1(0);
-	if (epollfd == -1) {
-		perror("epoll_create1");
 		exit(EXIT_FAILURE);
 	}
 
-	ev.events = EPOLLIN;
-	ev.data.fd = raw_sock;
-	if (epoll_ctl(epollfd, EPOLL_CTL_ADD, raw_sock, &ev) == -1) {
-		perror("epoll_ctl: raw_sock");
+	// Set up the socket address structure
+	memset(&server_addr, 0, sizeof(struct sockaddr_un));
+	server_addr.sun_family = AF_UNIX;
+	strncpy(server_addr.sun_path, socket_lower, sizeof(server_addr.sun_path) - 1);
+
+	// Connect to the server
+	if (connect(client_fd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_un)) == -1) {
+		perror("connect");
+		close(client_fd);
 		exit(EXIT_FAILURE);
 	}
 
-	ev.data.fd = 0;
-	if (epoll_ctl(epollfd, EPOLL_CTL_ADD, 0, &ev) == -1) {
-		perror("epoll_ctl: stdin");
-		exit(EXIT_FAILURE);
-	}
-
+	// Clear buffer and receive echoed data from the server
 	while(1) {
-		rc = epoll_wait(epollfd, events, MAX_EVENTS, -1);
-		if (rc == -1) {
-			perror("epoll_wait");
-			exit(EXIT_FAILURE);
-		}
-
-		memset(buf, 0, BUF_SIZE);
-		memset(out_buf, 0, BUF_SIZE);
-
-		if (events->data.fd == raw_sock) {
-			printf("Someone knocked on the raw socket...\n");
-			rc = recv_raw_packet(raw_sock, buf, BUF_SIZE);
-			sprintf(out_buf, "PONG: %s", buf);
-			if (rc < 1) {
-				perror("recv");
-				return -1;
-			}
-			printf("\nReceived: %s\n", buf);
-
-			/* Send the received message over the RAW socket */
-			send_raw_packet(raw_sock,
-					&so_name,
-					//buf,
-					out_buf,
-					strlen((const char *)out_buf));
-					//strlen((const char *)buf));
+		memset(buffer, 0, BUFFER_SIZE);
+		ssize_t num_read = read(client_fd, buffer, BUFFER_SIZE);
+		if (num_read > 0) {
+			mip_ping_sdu* ping_sdu = deserialize_mip_ping_sdu(buffer);
+			printf("Received: %s\n", ping_sdu->message);
+			strcpy(msg_buffer, "PONG:");
+			strcat(msg_buffer, ping_sdu->message);
+			ping_sdu->message = msg_buffer;
+			size_t ping_sdu_size = 0;
+			uint8_t* serial_ping_sdu = serialize_mip_ping_sdu(ping_sdu, &ping_sdu_size);
+			printf("msg_buffer: %s\n", msg_buffer);
+			printf("msg: %s\n", ping_sdu->message);
+			write(client_fd, serial_ping_sdu, ping_sdu_size);
+		} else if (num_read == -1) {
+			perror("read");
 		}
 	}
 
-	close(raw_sock);
+	// Close the connection
+	close(client_fd);
 
 	return 0;
 }
