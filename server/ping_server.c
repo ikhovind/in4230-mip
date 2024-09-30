@@ -64,16 +64,17 @@ int main(int argc, char** argv) {
 		memset(buffer, 0, BUFFER_SIZE);
 		ssize_t num_read = read(client_fd, buffer, BUFFER_SIZE);
 		if (num_read > 0) {
-			mip_ping_sdu* ping_sdu = deserialize_mip_ping_sdu(buffer);
+			mip_ping_sdu* ping_sdu = malloc(sizeof(mip_ping_sdu));
+			deserialize_mip_ping_sdu(ping_sdu, buffer);
 			printf("Received: %s\n", ping_sdu->message);
 			strcpy(msg_buffer, "PONG:");
 			strcat(msg_buffer, ping_sdu->message);
 			ping_sdu->message = msg_buffer;
-			size_t ping_sdu_size = 0;
-			uint8_t* serial_ping_sdu = serialize_mip_ping_sdu(ping_sdu, &ping_sdu_size);
+			uint8_t *serial_ping_sdu = malloc(sizeof(uint8_t) + strlen(ping_sdu->message) + 1);
+			serialize_mip_ping_sdu(serial_ping_sdu, ping_sdu);
 			printf("msg_buffer: %s\n", msg_buffer);
 			printf("msg: %s\n", ping_sdu->message);
-			write(client_fd, serial_ping_sdu, ping_sdu_size);
+			write(client_fd, serial_ping_sdu, sizeof(uint8_t) + strlen(ping_sdu->message) + 1);
 		} else if (num_read == -1) {
 			perror("read");
 		}

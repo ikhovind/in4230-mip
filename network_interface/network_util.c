@@ -194,11 +194,11 @@ int broadcast(mip_pdu* broadcast_pdu) {
 
     printf("broadcasting pdu:\n");
     print_mip_pdu(broadcast_pdu);
-    size_t size = 0;
-    uint8_t* serialized_pdu = serialize_mip_pdu(broadcast_pdu, &size);
+    uint8_t* serial_pdu = malloc(sizeof(mip_header) + broadcast_pdu->header.sdu_len);
+    serialize_mip_pdu(serial_pdu, broadcast_pdu);
 
     // src[6] + dst[6] + type [2]
-    uint8_t length = 14 * sizeof(uint8_t) + size;
+    uint8_t length = 14 * sizeof(uint8_t) + sizeof(mip_header) + broadcast_pdu->header.sdu_len;
     // Construct the Ethernet frame
     uint8_t frame[length];
     memset(frame, 0, length);
@@ -211,7 +211,7 @@ int broadcast(mip_pdu* broadcast_pdu) {
     frame[12] = 0x88;
     frame[13] = 0xb5;
 
-    memcpy(frame + 14, serialized_pdu, size);
+    memcpy(frame + 14, serial_pdu, sizeof(mip_header) + broadcast_pdu->header.sdu_len);
 
     // Set the destination address
     struct sockaddr_ll addr = {0};
@@ -230,49 +230,4 @@ int broadcast(mip_pdu* broadcast_pdu) {
 
     close(sockfd);
     return 0;
-}
-
-#define RESPONSE_MAC "\x01\x02\x03\x04\x05\x06"  // Example MAC address for response
-
-void respond_to_broadcast(int sockfd, struct sockaddr_ll *recv_addr, uint8_t *recv_buf, size_t recv_len) {
-    struct ifreq ifr;
-    uint8_t response_frame[ETH_FRAME_LEN];
-    size_t response_len = 0;
-
-    // Get the MAC address of the interface
-    strncpy(ifr.ifr_name, "mipd-eth1", IFNAMSIZ - 1);
-    if (ioctl(sockfd, SIOCGIFHWADDR, &ifr) == -1) {
-        perror("Failed to get MAC address");
-        close(sockfd);
-        exit(EXIT_FAILURE);
-    }
-    unsigned char source_mac[6];
-    memcpy(source_mac, ifr.ifr_hwaddr.sa_data, 6);
-
-    // Construct the Ethernet frame
-    memset(response_frame, 0, ETH_FRAME_LEN);
-    memcpy(response_frame, recv_addr->sll_addr, 6);  // Destination MAC address (source of received broadcast)
-    memcpy(response_frame + 6, source_mac, 6);       // Source MAC address
-    response_frame[12] = 0x88;                       // EtherType (custom value for example)
-    response_frame[13] = 0xb5;
-
-    // Add your response data
-    const char *response_data = "Response to broadcast";
-    response_len = strlen(response_data);
-    memcpy(response_frame + 14, response_data, response_len);
-
-    // Set the destination address
-    struct sockaddr_ll addr = {0};
-    addr.sll_ifindex = recv_addr->sll_ifindex;
-    addr.sll_halen = ETH_ALEN;
-    memcpy(addr.sll_addr, recv_addr->sll_addr, ETH_ALEN);
-
-    // Send the Ethernet frame
-    if (sendto(sockfd, response_frame, 14 + response_len, 0, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
-        perror("Failed to send the frame");
-        close(sockfd);
-        exit(EXIT_FAILURE);
-    }
-
-    printf("Response packet sent successfully!\n");
 }

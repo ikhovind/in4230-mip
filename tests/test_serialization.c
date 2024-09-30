@@ -18,9 +18,6 @@ void test_serialize_mip_ping_sdu(void) {
     * +--------------------------+-------------------------------------------------+
     * | mip_address 8 bit        | null-terminated message (up to 2^9 - 2 bytes)   |
     * +--------------------------+-------------------------------------------------+
-    *
-    *
-    *
     */
     uint8_t serial_buf[256];
     mip_ping_sdu sdu;

@@ -90,9 +90,9 @@ int main(int argc, char** argv)
 
 	size_t mip_ping_sdu_size = sizeof(ping_sdu) + strlen(ping_sdu.message);
 
-	size_t serialized_size = 0;
-	uint8_t* serialized = serialize_mip_ping_sdu(&ping_sdu, &serialized_size);
-	rc = write(sd, serialized, serialized_size);
+	uint8_t *serialized = malloc(sizeof(uint8_t) + strlen(ping_sdu.message) + 1);
+	serialize_mip_ping_sdu(serialized, &ping_sdu);
+	rc = write(sd, serialized, sizeof(uint8_t) + strlen(ping_sdu.message) + 1);
 
 	free(serialized);
 
@@ -113,9 +113,13 @@ int main(int argc, char** argv)
 			perror("recv");
 		}
 	} else if (bytes_received > 0) {
-		mip_ping_sdu* ping_sdu = deserialize_mip_ping_sdu(buf);
+
+		mip_ping_sdu* rec_ping_sdu = malloc(sizeof(mip_ping_sdu));
+		deserialize_mip_ping_sdu(rec_ping_sdu, buf);
 		printf("Received:\n");
-		print_mip_ping_sdu(ping_sdu);
+		print_mip_ping_sdu(rec_ping_sdu);
+		free(rec_ping_sdu->message);
+		free(rec_ping_sdu);
 	}
 
 	exit(0);

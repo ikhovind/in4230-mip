@@ -219,18 +219,18 @@ static void send_mip_arp_response(int sd, uint8_t dest_address, uint8_t* frame, 
 	printf("Sending mip arp response with pdu:\n");
 	print_mip_pdu(&mip_pdu);
 	//broadcast(&mip_pdu);
-	size_t size = 0;
-	uint8_t* serial = serialize_mip_pdu(&mip_pdu, &size);
+	uint8_t *serial = malloc(sizeof(mip_header) + mip_pdu.header.sdu_len);
+	serialize_mip_pdu(serial, &mip_pdu);
 
-	uint8_t* buffer = malloc(14 + size);
+	uint8_t* buffer = malloc(14 + sizeof(mip_header) + mip_pdu.header.sdu_len);
 	memcpy(buffer, frame, 14);
-	memcpy(buffer + 14, serial, size);
+	memcpy(buffer + 14, serial, sizeof(mip_header) + mip_pdu.header.sdu_len);
 	//get_mac_from_interface(&so_name);
 	//ssize_t sent_bytes = write(sd, serial, size, 0, (const struct sockaddr *)recv_addr, sizeof(*recv_addr));
 
 	printf("Sending mip as response\n");
 	print_mip_pdu(&mip_pdu);
-    ssize_t sent_bytes = sendto(sd, buffer, 14 + size, 0, (const struct sockaddr *)recv_addr, sizeof(*recv_addr));
+    ssize_t sent_bytes = sendto(sd, buffer, 14 + sizeof(mip_header) + mip_pdu.header.sdu_len, 0, (const struct sockaddr *)recv_addr, sizeof(*recv_addr));
 	free(buffer);
 	if (sent_bytes == -1) {
 		perror("sendto");
@@ -293,7 +293,8 @@ static int forward_received_ping(mip_ping_sdu* mip_ping_sdu, int epoll_fd, int s
 	memcpy(frame + 6, recv_addr.sll_addr, 6);
 	memcpy(frame + 14, "hello", 5);
 
-	uint8_t* serial = serialize_mip_pdu(&ping_pdu, &size);
+	uint8_t* serial = malloc(sizeof(mip_header) + ping_pdu.header.sdu_len);
+	serialize_mip_pdu(serial, &ping_pdu);
 	printf("Serial address: %p\n", serial);
 	printf("serial size is: %ld\n", size);
 	memcpy(frame + 14, serial, size);
@@ -328,9 +329,11 @@ static mip_ping_sdu* handle_client(int fd)
 		close(fd);
 		return NULL;
 	}
-	mip_ping_sdu* deserialized_sdu = deserialize_mip_ping_sdu(buf);
 
-	return deserialized_sdu;
+	mip_ping_sdu *ping_sdu = malloc(sizeof(mip_ping_sdu));
+	deserialize_mip_ping_sdu(ping_sdu, buf);
+
+	return ping_sdu;
 }
 
 static void handle_broadcast(int fd, int unix_sd)
@@ -383,9 +386,13 @@ static void handle_broadcast(int fd, int unix_sd)
 			.message = ((mip_ping_sdu*) pdu.sdu)->message,
 		};
 
-		size_t size;
-		uint8_t* serial_sdu = serialize_mip_ping_sdu(&ping_sdu, &size);
-		write(unix_sd, serial_sdu, size);
+		uint8_t* serial = malloc(sizeof(uint8_t) + strlen(ping_sdu.message) + 1);
+		serialize_mip_ping_sdu(serial, &ping_sdu);
+		size_t written_bytes = write(unix_sd, serial, sizeof(uint8_t) + strlen(ping_sdu.message) + 1);
+		if (written_bytes == -1) {
+			perror("write");
+			exit(EXIT_FAILURE);
+		}
 		return;
 	}
 
@@ -491,14 +498,42 @@ void server(char* socket_upper)
 				/* We have received a packet on the raw socket
 				 *
 				 * This means that it was a broadcast or a ping forwarded by a mipd
+				 *
+				 * We know this will be a mip pdu
 				 */
 				printf("Received possible broadcast\n");
 				printf("accept_sd: %d\n", accept_sd);
 				handle_broadcast(events[i].data.fd, accept_sd);
+				/*
+				 * We should:
+				 *  1. Read the data
+				 *  2. Deserialize the packet
+				 *  3. Check if it is a broadcast or a ping
+				 *     a. If it is a broadcast, we should check if it is for us
+				 *        i. If it is for us
+				 *			aa. We should learn the MAC address of the sender
+				 *			ab. If it is an ARP request, we should respond with an ARP response
+				 *         we should respond with an ARP response
+				 *        ii. If it is not for us, we should ignore it
+				 *     b. If it is a ping, we should forward it to the correct client
+				 *
+				 */
 			} else {
 				printf("received from this: %d\n", events[i].data.fd);
 				/* existing user is trying to send data (ping_client or ping_server) */
 				mip_ping_sdu* received_ping_sdu = handle_client(events[i].data.fd);
+				/*
+				 * We should:
+				 * 1. Read the data
+				 * 2. Deserialize the packet
+				 * 3. Check the cache for the destination MIP address
+				 * 4. If the client is found, we should send the ping
+				 * 5. If the client is not found, we should send an ARP request
+				 *     a. After the ARP we should read the incoming ARP response
+				 *     b. If the client is found, we should send the ping
+				 * 5. If the client is found, we should send the ping
+				 *
+				 */
 				print_mip_ping_sdu(received_ping_sdu);
 				if (received_ping_sdu != NULL) {
 					forward_received_ping(received_ping_sdu, epollfd, raw_sd);

@@ -8,9 +8,6 @@
 #include <stdio.h>
 
 void serialize_mip_ping_sdu(uint8_t* target, mip_ping_sdu* sdu) {
-    // Calculate the size of the serialized data
-    size_t message_len = strlen(sdu->message);
-
     // Allocate buffer for serialized data
     // Copy mip_address to buffer
     target[0] = sdu->mip_address;
@@ -36,7 +33,6 @@ void serialize_mip_pdu(uint8_t* target, mip_pdu* pdu) {
         memcpy(target, &pdu->header, sizeof(mip_header));
 
         // copy sdu
-        size_t ping_sdu_size = 0;
         serialize_mip_ping_sdu(target + sizeof(mip_header), ping_sdu);
         return;
     }
