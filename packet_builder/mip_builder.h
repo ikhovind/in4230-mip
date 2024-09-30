@@ -36,13 +36,70 @@ typedef struct {
     void* sdu;
 } mip_pdu;
 
-uint8_t* serialize_mip_ping_sdu(mip_ping_sdu* sdu, size_t* size);
-mip_ping_sdu* deserialize_mip_ping_sdu(uint8_t* buffer);
-uint8_t* serialize_mip_pdu(mip_pdu* sdu, size_t* size);
-void deserialize_mip_pdu(mip_pdu* pdu, uint8_t* serial_pdu);
+/**
+* Serialize a mip_ping_sdu struct to a byte array
+*
+* target: The byte array to serialize to (must be allocated by the caller to a size of: 1 + strlen(sdu->message) + 1)
+* sdu: The mip_ping_sdu struct to serialize. sdu-> message must contain a null-terminated string.
+*/
+void serialize_mip_ping_sdu(uint8_t* target, mip_ping_sdu* sdu);
+
+/**
+* Deserialize a mip_ping_sdu struct from a byte array
+*
+* target: The mip_ping_sdu struct to deserialize to (must be allocated by the caller).
+*         The message field will be allocated by the function and must be freed by the caller.
+*         The message field will be null-terminated.
+* buffer: The byte array to deserialize from. as formatted by serialize_mip_ping_sdu.
+*/
+void deserialize_mip_ping_sdu(mip_ping_sdu* target, uint8_t* buffer);
+
+/**
+* Serialize a mip_arp_sdu struct to a byte array
+*
+* target: The byte array to serialize to (must be allocated by the caller to a size of: sizeof(mip_header) + pdu->header->sdu_len)
+* pdu: The mip_pdu struct to serialize.
+*      if pdu->header->sdu_type is ARP_SDU_TYPE, pdu->sdu must be a mip_arp_sdu struct.
+*      if pdu->header->sdu_type is PING_SDU_TYPE, pdu->sdu must be a mip_ping_sdu struct.
+*      if pdu->sdu is a mip_ping_sdu struct, the message field must contain a null-terminated string.
+*/
+void serialize_mip_pdu(uint8_t* target, mip_pdu* pdu);
+
+/**
+* Deserialize a mip_pdu struct from a byte array
+*
+* target: The mip_pdu struct to deserialize to (must be allocated by the caller).
+*         The sdu field will be allocated by the function to a size of pdu->header->sdu_len and must be freed by the caller.
+*
+* serial_pdu: The byte array to deserialize from. as formatted by serialize_mip_pdu.
+*/
+void deserialize_mip_pdu(mip_pdu* target, uint8_t* serial_pdu);
+
+/**
+* Print a mip_ping_sdu struct to stdout
+*/
 void print_mip_ping_sdu(mip_ping_sdu* sdu);
-void build_mip_pdu(mip_pdu* pdu, void* sdu, uint8_t source_address, uint8_t dest_address, uint8_t ttl, uint8_t sdu_type);
+
+/**
+* build a mip_pdu struct
+*
+* sdu: The sdu to include in the pdu.
+*      If sdu_type is PING_SDU_TYPE, sdu must be a mip_ping_sdu struct.
+*      If sdu_type is ARP_SDU_TYPE, sdu must be a mip_arp_sdu struct.
+* source_address: The MIP address of the source node.
+* dest_address: The MIP address of the destination node.
+* ttl: Time To Live; maximum hop count
+* sdu_type: The type of the sdu. Must be either PING_SDU_TYPE or ARP_SDU_TYPE.
+*/
+void build_mip_pdu(mip_pdu* target, void* sdu, uint8_t source_address, uint8_t dest_address, uint8_t ttl, uint8_t sdu_type);
+
+/**
+ * Print a mip_arp_sdu struct to stdout
+ */
 void print_mip_pdu(mip_pdu* pdu);
+/**
+* Print a mip_arp_sdu struct to stdout
+*/
 void print_mip_arp_sdu(mip_arp_sdu* sdu);
 
 

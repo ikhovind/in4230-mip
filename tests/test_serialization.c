@@ -14,67 +14,68 @@ void tearDown(void) {
 
 void test_serialize_mip_ping_sdu(void) {
     /*
-    * Format should be
-    * +--------------------------+-------------------+---------------------------+
-    * | size            (8 bit)  | mip_address 8 bit | message (up to 253 bytes) |
-    * +--------------------------+-------------------+---------------------------+
-    * |
+    * Format should be (total length can be up to 2^9 - 1 bytes because length in pdu header is 9 bits):
+    * +--------------------------+-------------------------------------------------+
+    * | mip_address 8 bit        | null-terminated message (up to 2^9 - 2 bytes)   |
+    * +--------------------------+-------------------------------------------------+
+    *
     *
     *
     */
+    uint8_t serial_buf[256];
     mip_ping_sdu sdu;
-    sdu.mip_address = 200;
 
     sdu.message = "hello";
     sdu.mip_address = 200;
 
-    size_t size = 0;
-    // then serialize and deserialize it
-    uint8_t* serialized = serialize_mip_ping_sdu(&sdu, &size);
+    // then serialize
+    serialize_mip_ping_sdu(serial_buf, &sdu);
 
-    TEST_ASSERT_EQUAL(7, serialized[0]);
-    TEST_ASSERT_EQUAL(200, serialized[1]);
-    TEST_ASSERT_EQUAL_STRING("hello", &serialized[2]);
+    TEST_ASSERT_EQUAL(200, serial_buf[0]);
+    TEST_ASSERT_EQUAL_STRING("hello", &serial_buf[1]);
 }
 
 void test_deserialize_mip_ping_sdu(void) {
     uint8_t* serial_sdu = malloc(1 + 1 + strlen("hello") + 1);
-    serial_sdu[0] = 7;
-    serial_sdu[1] = 200;
-    memcpy(&serial_sdu[2], "hello", 5);
-    serial_sdu[2 + 5] = '\0';
+    serial_sdu[0] = 200;
+    memcpy(&serial_sdu[1], "hello", 5);
+    serial_sdu[1 + 5] = '\0';
 
-    mip_ping_sdu* ping_sdu = deserialize_mip_ping_sdu(serial_sdu);
+    mip_ping_sdu* ping_sdu = malloc(sizeof(uint8_t));
+    deserialize_mip_ping_sdu(ping_sdu, serial_sdu);
     TEST_ASSERT_EQUAL(200, ping_sdu->mip_address);
     TEST_ASSERT_EQUAL_STRING("hello", ping_sdu->message);
+
+    free(serial_sdu);
 }
 
 void test_serialize_mip_ping(void) {
     // first build our PDU
-    mip_pdu arp_pdu;
+    mip_pdu* arp_pdu = malloc(256);
     mip_ping_sdu sdu;
     sdu.mip_address = 200;
     sdu.message = "Can I be serialized?";
 
     sdu.mip_address = 200;
-    build_mip_pdu(&arp_pdu, &sdu, 100, 200, 1, PING_SDU_TYPE);
+    build_mip_pdu(arp_pdu, &sdu, 100, 200, 1, PING_SDU_TYPE);
 
-    size_t size = 0;
+    uint8_t serialized[256];
     // then serialize and deserialize it
-    uint8_t* serialized = serialize_mip_pdu(&arp_pdu, &size);
+    serialize_mip_pdu(serialized, arp_pdu);
 
-    mip_pdu deserialized_pdu;
-    deserialize_mip_pdu(&deserialized_pdu, serialized);
+    mip_pdu* deserialized_pdu = malloc(sizeof(mip_header));
+
+    deserialize_mip_pdu(deserialized_pdu, serialized);
 
     // check that content of deserialized pdu is the same as the serialized one
-    TEST_ASSERT_EQUAL_PTR(sdu.mip_address, ((mip_ping_sdu*)deserialized_pdu.sdu)->mip_address);
-    TEST_ASSERT_EQUAL_STRING(sdu.message, ((mip_ping_sdu*)deserialized_pdu.sdu)->message);
+    TEST_ASSERT_EQUAL_PTR(sdu.mip_address, ((mip_ping_sdu*)deserialized_pdu->sdu)->mip_address);
+    TEST_ASSERT_EQUAL_STRING(sdu.message, ((mip_ping_sdu*)deserialized_pdu->sdu)->message);
 
-    TEST_ASSERT_EQUAL(arp_pdu.header.dest_address, deserialized_pdu.header.dest_address);
-    TEST_ASSERT_EQUAL(arp_pdu.header.source_address, deserialized_pdu.header.source_address);
-    TEST_ASSERT_EQUAL(arp_pdu.header.ttl, deserialized_pdu.header.ttl);
-    TEST_ASSERT_EQUAL(arp_pdu.header.sdu_len, deserialized_pdu.header.sdu_len);
-    TEST_ASSERT_EQUAL(arp_pdu.header.sdu_type, deserialized_pdu.header.sdu_type);
+    TEST_ASSERT_EQUAL(arp_pdu->header.dest_address, deserialized_pdu->header.dest_address);
+    TEST_ASSERT_EQUAL(arp_pdu->header.source_address, deserialized_pdu->header.source_address);
+    TEST_ASSERT_EQUAL(arp_pdu->header.ttl, deserialized_pdu->header.ttl);
+    TEST_ASSERT_EQUAL(arp_pdu->header.sdu_len, deserialized_pdu->header.sdu_len);
+    TEST_ASSERT_EQUAL(arp_pdu->header.sdu_type, deserialized_pdu->header.sdu_type);
 }
 
 void test_serialize_mip_arp(void) {
@@ -86,22 +87,23 @@ void test_serialize_mip_arp(void) {
     sdu.mip_address = 200;
     build_mip_pdu(&arp_pdu, &sdu, 100, 200, 1, ARP_SDU_TYPE);
 
-    size_t size = 0;
     // then serialize and deserialize it
-    uint8_t* serialized = serialize_mip_pdu(&arp_pdu, &size);
+    uint8_t serialized[256];
+    serialize_mip_pdu(serialized, &arp_pdu);
 
-    mip_pdu deserialized_pdu;
-    deserialize_mip_pdu(&deserialized_pdu, serialized);
+    mip_pdu* deserialized_pdu = malloc(sizeof(mip_header));
+
+    deserialize_mip_pdu(deserialized_pdu, serialized);
 
     // check that content of deserialized pdu is the same as the serialized one
-    TEST_ASSERT_EQUAL(sdu.type, ((mip_arp_sdu*)deserialized_pdu.sdu)->type);
-    TEST_ASSERT_EQUAL(sdu.mip_address, ((mip_arp_sdu*)deserialized_pdu.sdu)->mip_address);
-    TEST_ASSERT_EQUAL(sdu.padding, ((mip_arp_sdu*)deserialized_pdu.sdu)->padding);
-    TEST_ASSERT_EQUAL(arp_pdu.header.dest_address, deserialized_pdu.header.dest_address);
-    TEST_ASSERT_EQUAL(arp_pdu.header.source_address, deserialized_pdu.header.source_address);
-    TEST_ASSERT_EQUAL(arp_pdu.header.ttl, deserialized_pdu.header.ttl);
-    TEST_ASSERT_EQUAL(arp_pdu.header.sdu_len, deserialized_pdu.header.sdu_len);
-    TEST_ASSERT_EQUAL(arp_pdu.header.sdu_type, deserialized_pdu.header.sdu_type);
+    TEST_ASSERT_EQUAL(sdu.type, ((mip_arp_sdu*)deserialized_pdu->sdu)->type);
+    TEST_ASSERT_EQUAL(sdu.mip_address, ((mip_arp_sdu*)deserialized_pdu->sdu)->mip_address);
+    TEST_ASSERT_EQUAL(sdu.padding, ((mip_arp_sdu*)deserialized_pdu->sdu)->padding);
+    TEST_ASSERT_EQUAL(arp_pdu.header.dest_address, deserialized_pdu->header.dest_address);
+    TEST_ASSERT_EQUAL(arp_pdu.header.source_address, deserialized_pdu->header.source_address);
+    TEST_ASSERT_EQUAL(arp_pdu.header.ttl, deserialized_pdu->header.ttl);
+    TEST_ASSERT_EQUAL(arp_pdu.header.sdu_len, deserialized_pdu->header.sdu_len);
+    TEST_ASSERT_EQUAL(arp_pdu.header.sdu_type, deserialized_pdu->header.sdu_type);
 }
 
 // not needed when using generate_test_runner.rb
