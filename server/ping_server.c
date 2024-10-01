@@ -58,6 +58,8 @@ int main(int argc, char** argv) {
 		close(client_fd);
 		exit(EXIT_FAILURE);
 	}
+	printf("hello world print\n");
+	fflush(stdout);
 
 	// Clear buffer and receive echoed data from the server
 	while(1) {
@@ -75,6 +77,7 @@ int main(int argc, char** argv) {
 			printf("msg_buffer: %s\n", msg_buffer);
 			printf("msg: %s\n", ping_sdu->message);
 			write(client_fd, serial_ping_sdu, sizeof(uint8_t) + strlen(ping_sdu->message) + 1);
+			fflush(stdout);
 		} else if (num_read == -1) {
 			perror("read");
 		}

@@ -443,6 +443,7 @@ void server(char* socket_upper)
 
 	printf("\n*** IN3230 Multiclient chat server is running! ***\n"
 	       "* Waiting for users to connect... *\n\n");
+	fflush(stdout);
 
 	/* Call the method to create, bind and listen to the server socket */
 	unix_sd = prepare_server_sock(socket_upper);
