@@ -4,12 +4,14 @@
 
 // basic unix socket implementation
 
+#define _DEFAULT_SOURCE
 #include <stdio.h>	/* standard input/output library functions */
 #include <stdlib.h>	/* standard library definitions (macros) */
 #include <unistd.h>	/* standard symbolic constants and types */
 #include <stdbool.h>
 #include <string.h>	/* string operations (strncpy, memset..) */
 
+#include <net/if.h>
 #include <sys/epoll.h>	/* epoll */
 #include <sys/socket.h>	/* sockets operations */
 #include <sys/un.h>	/* definitions for UNIX domain sockets */
@@ -20,10 +22,19 @@
 #include <signal.h>
 #include <bits/sigaction.h>
 
+#include <netinet/in.h>
+#include <sys/ioctl.h>
+#include <linux/if_ether.h>   // for ETH_FRAME_LEN
+
 
 #include "mip_daemon.h"
 
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <net/if.h>
+
 #include "../packet_builder/mip_builder.h"
+#include "../packet_builder/eth_builder.h"
 #include "../cache/arp_cache.h"
 #include "../network_interface/network_util.h"
 
@@ -33,6 +44,8 @@ char socket_name[256];
 
 int unix_sd;
 int raw_sd;
+bool debug = false;
+struct sockaddr_ll our_addr;
 
 // Clean up function to close the socket
 void cleanup(int signum) {
@@ -180,6 +193,39 @@ static int add_to_epoll_table(int efd, struct epoll_event *ev, int fd)
 	return rc;
 }
 
+
+int broadcast(mip_pdu* broadcast_pdu, int raw_sd) {
+    printf("broadcasting\n");
+
+    uint8_t* serial_pdu = malloc(sizeof(mip_header) + broadcast_pdu->header.sdu_len);
+    serialize_mip_pdu(serial_pdu, broadcast_pdu);
+
+    // Construct the Ethernet frame
+	eth_header broadcast_header;
+
+	build_eth_header(&broadcast_header, BROADCAST_MAC, our_addr.sll_addr, ETH_MIP_TYPE);
+	eth_pdu broadcast_eth_pdu;
+	build_eth_pdu(&broadcast_eth_pdu, &broadcast_header, broadcast_pdu);
+
+	uint8_t frame2 [ETH_ARP_SIZE];
+	serialize_eth_pdu(frame2, &broadcast_eth_pdu);
+
+    struct sockaddr_ll addr = {0};
+    addr.sll_ifindex = our_addr.sll_ifindex;
+    addr.sll_halen = ETH_ALEN;
+    memcpy(addr.sll_addr, BROADCAST_MAC, ETH_ALEN);
+
+    // Send the Ethernet frame
+    if (sendto(raw_sd, frame2, ETH_ARP_SIZE, 0, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
+        perror("Failed to send the frame");
+        close(raw_sd);
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Broadcast packet sent successfully!\n");
+    return 0;
+}
+
 static void send_mip_arp(uint8_t dest_address, uint8_t arp_type) {
 	mip_arp_sdu arp_sdu;
 	arp_sdu.type = arp_type;
@@ -190,8 +236,7 @@ static void send_mip_arp(uint8_t dest_address, uint8_t arp_type) {
 
 		build_mip_pdu(&mip_pdu, &arp_sdu, mip_address, dest_address, 1, ARP_SDU_TYPE);
 		printf("Sending broadcast message with pdu:\n");
-		print_mip_pdu(&mip_pdu);
-		broadcast(&mip_pdu);
+		broadcast(&mip_pdu, raw_sd);
 	}
 	else if (arp_type == ARP_RESPONSE_TYPE) {
 		// mip address that matched
@@ -200,8 +245,7 @@ static void send_mip_arp(uint8_t dest_address, uint8_t arp_type) {
 
 		build_mip_pdu(&mip_pdu, &arp_sdu, mip_address, dest_address, 1, ARP_SDU_TYPE);
 		printf("Sending broadcast response with pdu:\n");
-		print_mip_pdu(&mip_pdu);
-		broadcast(&mip_pdu);
+		broadcast(&mip_pdu, raw_sd);
 	}
 	else {
 		printf("Invalid ARP type\n");
@@ -217,7 +261,6 @@ static void send_mip_arp_response(int sd, uint8_t dest_address, uint8_t* frame, 
 
 	build_mip_pdu(&mip_pdu, &arp_sdu, mip_address, dest_address, 1, ARP_SDU_TYPE);
 	printf("Sending mip arp response with pdu:\n");
-	print_mip_pdu(&mip_pdu);
 	//broadcast(&mip_pdu);
 	uint8_t *serial = malloc(sizeof(mip_header) + mip_pdu.header.sdu_len);
 	serialize_mip_pdu(serial, &mip_pdu);
@@ -228,8 +271,6 @@ static void send_mip_arp_response(int sd, uint8_t dest_address, uint8_t* frame, 
 	//get_mac_from_interface(&so_name);
 	//ssize_t sent_bytes = write(sd, serial, size, 0, (const struct sockaddr *)recv_addr, sizeof(*recv_addr));
 
-	printf("Sending mip as response\n");
-	print_mip_pdu(&mip_pdu);
     ssize_t sent_bytes = sendto(sd, buffer, 14 + sizeof(mip_header) + mip_pdu.header.sdu_len, 0, (const struct sockaddr *)recv_addr, sizeof(*recv_addr));
 	free(buffer);
 	if (sent_bytes == -1) {
@@ -237,103 +278,6 @@ static void send_mip_arp_response(int sd, uint8_t dest_address, uint8_t* frame, 
 		exit(EXIT_FAILURE);
 	};
 	printf("Attempt finsihed: %ld\n", sent_bytes);
-}
-
-static int forward_received_ping(mip_ping_sdu* mip_ping_sdu, int epoll_fd, int socket_fd) {
-	mip_pdu ping_pdu;
-	build_mip_pdu(&ping_pdu, mip_ping_sdu, mip_address, mip_ping_sdu->mip_address, 1, PING_SDU_TYPE);
-	uint8_t* dest_mac = get_mac_address(&cache, ping_pdu.header.dest_address);
-	struct sockaddr_ll recv_addr;
-	if (dest_mac == NULL) {
-		printf("No MAC address found for MIP address %d, sending arp\n", ping_pdu.header.dest_address);
-		send_mip_arp(ping_pdu.header.dest_address, ARP_REQUEST_TYPE);
-		// try again after ARP
-		struct epoll_event events[MAX_EVENTS];
-		int rc = epoll_wait(epoll_fd, events, 1, -1);
-		if (rc == -1) {
-			perror("epoll_wait");
-			exit(EXIT_FAILURE);
-		}
-		uint8_t buf[50];
-		socklen_t addr_len = sizeof(recv_addr);
-
-		rc = recvfrom(socket_fd, buf, sizeof(buf), 0, (struct sockaddr *)&recv_addr, &addr_len);
-		if (rc < 0) {
-			close(socket_fd);
-			exit(EXIT_FAILURE);
-		}
-		mip_pdu arp_response_pdu;
-		deserialize_mip_pdu(&arp_response_pdu, buf + 14);
-		printf("arp response received\n");
-		print_mip_pdu(&arp_response_pdu);
-		uint8_t mac_response_source[6];
-		uint8_t mac_response_dest[6];
-		memcpy(mac_response_source, buf + 6, 6);
-		memcpy(mac_response_dest, buf, 6);
-		for (int i = 0; i < 6; ++i) {
-			printf("mac_response_dest[%d]: %02x\n", i, mac_response_dest[i]);
-			printf("mac_response_source[%d]: %02x\n", i, mac_response_source[i]);
-		}
-		insert_cache_index(&cache, arp_response_pdu.header.source_address, mac_response_source);
-		dest_mac = get_mac_address(&cache, ping_pdu.header.dest_address);
-		if (dest_mac == NULL) {
-			printf("ERROR: MIP ARP did not work\n");
-			exit(EXIT_FAILURE);
-		}
-	}
-	printf("found MAC address for MIP address\n");
-
-	size_t size = ping_pdu.header.sdu_len + sizeof(mip_header);
-	printf("frame size is: %ld\n", 14 + size);
-	uint8_t frame[14 + size];
-	memcpy(frame, dest_mac, 6);
-	get_mac_from_interface(&recv_addr);
-	frame[12] = 0x88;
-	frame[13] = 0xb5;
-	memcpy(frame + 6, recv_addr.sll_addr, 6);
-	memcpy(frame + 14, "hello", 5);
-
-	uint8_t* serial = malloc(sizeof(mip_header) + ping_pdu.header.sdu_len);
-	serialize_mip_pdu(serial, &ping_pdu);
-	printf("Serial address: %p\n", serial);
-	printf("serial size is: %ld\n", size);
-	memcpy(frame + 14, serial, size);
-	printf("is it here?\n");
-
-    ssize_t sent_bytes = sendto(socket_fd, frame, 14 + size, 0, (const struct sockaddr *)&recv_addr, sizeof(recv_addr));
-	if (sent_bytes == -1) {
-		perror("sendto");
-		exit(EXIT_FAILURE);
-	};
-	printf("Sent ping packet: %ld\n", sent_bytes);
-	return 1;
-
-}
-
-static mip_ping_sdu* handle_client(int fd)
-{
-	uint8_t buf[256];
-	int rc;
-
-	/* The memset() function fills the first 'sizeof(buf)' bytes
-	 * of the memory area pointed to by 'buf' with the constant byte 0.
-	 */
-	memset(buf, 0, sizeof(buf));
-
-	/* read() attempts to read up to 'sizeof(buf)' bytes from file
-	 * descriptor fd into the buffer starting at buf.
-	 */
-	rc = read(fd, buf, sizeof(buf));
-	printf("rc is: %d\n", rc);
-	if (rc <= 0) {
-		close(fd);
-		return NULL;
-	}
-
-	mip_ping_sdu *ping_sdu = malloc(sizeof(mip_ping_sdu));
-	deserialize_mip_ping_sdu(ping_sdu, buf);
-
-	return ping_sdu;
 }
 
 static void handle_broadcast(int fd, int unix_sd)
@@ -367,19 +311,12 @@ static void handle_broadcast(int fd, int unix_sd)
 		if (((mip_arp_sdu*)pdu.sdu)->type == ARP_RESPONSE_TYPE) {
 			printf("Got arp response:\n");
 			insert_cache_index(&cache, pdu.header.source_address, mac_src);
-			printf("source address is: %d\n", pdu.header.source_address);
-			uint8_t *mac_src2 = get_mac_address(&cache, pdu.header.source_address);
-			printf("mac addr is\n");
-			for (int i = 0; i < 6; i++) {
-				printf("%02x \n", mac_src2[i]);
-			}
 			return;
 		}
 	}
 
 	if (pdu.header.sdu_type == PING_SDU_TYPE) {
 		printf("received ping\n");
-		print_mip_pdu(&pdu);
 
 		mip_ping_sdu ping_sdu = {
 			.mip_address = pdu.header.source_address,
@@ -422,14 +359,82 @@ static void handle_broadcast(int fd, int unix_sd)
 	}
 	else {
 		printf("Received broadcast not for us, ignoring\n");
-		print_mip_pdu(&pdu);
 	}
+}
+
+void send_broadcast_for_mip(eth_pdu *eth_arp_response, uint8_t mip_dest_address, int epollfd, struct sockaddr_ll recv_addr) {
+	printf("No MAC address found for MIP address %d, sending arp\n", mip_dest_address);
+	send_mip_arp(mip_dest_address, ARP_REQUEST_TYPE);
+
+	struct epoll_event events[MAX_EVENTS];
+	// wait for ARP response
+	int rc = epoll_wait(epollfd, events, 1, -1);
+	if (rc == -1) {
+		perror("epoll_wait");
+		exit(EXIT_FAILURE);
+	}
+	uint8_t buf[50];
+	socklen_t addr_len = sizeof(recv_addr);
+
+	struct timeval tv;
+	fd_set readfds;
+
+	// Set timeout
+	tv.tv_sec = 1;
+	tv.tv_usec = 0;
+
+	// Clear the file descriptor set
+	FD_ZERO(&readfds);
+	// Add socket to the set
+	FD_SET(raw_sd, &readfds);
+
+	// Wait for ready descriptor or timeout
+	int ret = select(raw_sd + 1, &readfds, NULL, NULL, &tv);
+	if (ret == -1) {
+		perror("select error");
+		exit(EXIT_FAILURE);
+	}
+	if (ret == 0) {
+		printf("recvfrom timed out.\n");
+		eth_arp_response = NULL;
+		return;
+	}
+
+
+	ret = select(raw_sd + 1, &readfds, NULL, NULL, &tv);
+	if (ret == -1) {
+		perror("select error");
+		close(raw_sd);
+		exit(EXIT_FAILURE);
+	} else if (ret == 0) {
+		printf("recvfrom timed out.\n");
+	}
+
+
+
+	// a. After the ARP we should read the incoming ARP response
+	rc = recvfrom(raw_sd, buf, sizeof(buf), 0, (struct sockaddr *)&recv_addr, &addr_len);
+	printf("rc: %d\n", rc);
+	// check if recvfrom faced an error that was NOT timeout
+
+	if (rc < 0) {
+		perror("recvfrom");
+		close(raw_sd);
+		exit(EXIT_FAILURE);
+	}
+	printf("arp response received\n");
+	deserialize_eth_pdu(eth_arp_response, buf);
 }
 
 void server(char* socket_upper)
 {
 	struct epoll_event ev, events[MAX_EVENTS];
 	int	   accept_sd, epollfd, rc;
+	// for communicating with nodes over unix socket
+	uint8_t node_buffer[MIP_SDU_MAX_LENGTH];
+	// for communicating with other mips over raw socket
+	uint8_t mipd_buffer[MIP_PDU_MAX_SIZE];
+
 
 	// Set up signal handler for SIGINT
 	struct sigaction sa;
@@ -440,9 +445,10 @@ void server(char* socket_upper)
 		perror("sigaction");
 		exit(EXIT_FAILURE);
 	}
+	get_mac_from_interface(&our_addr);
 
 	printf("\n*** IN3230 Multiclient chat server is running! ***\n"
-	       "* Waiting for users to connect... *\n\n");
+	       "* Waiting for nodes to connect... *\n\n");
 	fflush(stdout);
 
 	/* Call the method to create, bind and listen to the server socket */
@@ -460,14 +466,18 @@ void server(char* socket_upper)
 	/* Add the main listening socket to epoll table */
 	rc = add_to_epoll_table(epollfd, &ev, unix_sd);
 	if (rc == -1) {
+		close(raw_sd);
 		close(unix_sd);
 		exit(EXIT_FAILURE);
 	}
 	rc = add_to_epoll_table(epollfd, &ev, raw_sd);
 	if (rc == -1) {
 		close(raw_sd);
+		close(unix_sd);
 		exit(EXIT_FAILURE);
 	}
+
+
 
 	while (1) {
 		rc = epoll_wait(epollfd, events, MAX_EVENTS, -1);
@@ -487,6 +497,7 @@ void server(char* socket_upper)
 					continue;
 				}
 
+
 				printf("<%d> joined the chat...\n", accept_sd);
 
 				/* Add the new socket to epoll table */
@@ -502,7 +513,7 @@ void server(char* socket_upper)
 				 *
 				 * We know this will be a mip pdu
 				 */
-				printf("Received possible broadcast\n");
+				printf("Received data on the raw socket from: %d\n", events[i].data.fd);
 				printf("accept_sd: %d\n", accept_sd);
 				handle_broadcast(events[i].data.fd, accept_sd);
 				/*
@@ -520,24 +531,68 @@ void server(char* socket_upper)
 				 *
 				 */
 			} else {
-				printf("received from this: %d\n", events[i].data.fd);
-				/* existing user is trying to send data (ping_client or ping_server) */
-				mip_ping_sdu* received_ping_sdu = handle_client(events[i].data.fd);
-				/*
-				 * We should:
-				 * 1. Read the data
-				 * 2. Deserialize the packet
-				 * 3. Check the cache for the destination MIP address
-				 * 4. If the client is found, we should send the ping
-				 * 5. If the client is not found, we should send an ARP request
-				 *     a. After the ARP we should read the incoming ARP response
-				 *     b. If the client is found, we should send the ping
-				 * 5. If the client is found, we should send the ping
-				 *
-				 */
-				print_mip_ping_sdu(received_ping_sdu);
-				if (received_ping_sdu != NULL) {
-					forward_received_ping(received_ping_sdu, epollfd, raw_sd);
+				printf("Received data on unix socket from: %d\n", events[i].data.fd);
+				/* existing node is trying to send data (ping_client or ping_server) */
+				int node_fd = events[i].data.fd;
+
+				// ############### We should: ##############3
+				// 1. Read the data
+				// don't need to memset since a message from the node will always be null-terminated
+				int rc1 = read(node_fd, node_buffer, sizeof(node_buffer));
+
+				if (rc1 < 0) {
+					perror("read");
+					close(node_fd);
+					exit(EXIT_FAILURE);
+				}
+				if (rc1 == 0) {
+					printf("Node closed communication\n");
+					close(node_fd);
+				}
+				else {
+				    // 2. Deserialize the packet
+					mip_ping_sdu ping_sdu;
+					deserialize_mip_ping_sdu(&ping_sdu, node_buffer);
+
+					// 3. Build the MIP PDU
+				    mip_pdu ping_pdu;
+				    build_mip_pdu(&ping_pdu, &ping_sdu, mip_address, ping_sdu.mip_address, 1, PING_SDU_TYPE);
+
+					// 4. Check the cache for the destination MIP address
+				    uint8_t* dest_mac = get_mac_address(&cache, ping_pdu.header.dest_address);
+					// 5. If the client is not found, we should send broadcast
+				    if (dest_mac == NULL) {
+					    eth_pdu eth_arp_response;
+					    send_broadcast_for_mip(&eth_arp_response, ping_pdu.header.dest_address, epollfd, our_addr);
+
+					    insert_cache_index(&cache, eth_arp_response.mip_pdu.header.source_address, eth_arp_response.header.source_address);
+				    	// get address we just inserted
+					    dest_mac = get_mac_address(&cache, ping_pdu.header.dest_address);
+
+				    	// b. If the ARP request failed, we cannot reach the given host
+					    if (dest_mac == NULL) {
+						    printf("ERROR: MIP ARP did not work, aborting ping\n");
+					    	continue;
+					    }
+				    }
+					// 6. If the client is found, we should send the ping
+				    printf("found MAC address for MIP address\n");
+				    size_t mip_pdu_size = ping_pdu.header.sdu_len + sizeof(mip_header);
+
+					eth_header ping_eth_header;
+					build_eth_header(&ping_eth_header, dest_mac, our_addr.sll_addr, ETH_MIP_TYPE);
+
+					eth_pdu ping_eth_pdu;
+					build_eth_pdu(&ping_eth_pdu, &ping_eth_header, &ping_pdu);
+
+					serialize_eth_pdu(mipd_buffer, &ping_eth_pdu);
+
+				    ssize_t sent_bytes = sendto(raw_sd, mipd_buffer, ETH_HEADER_LEN + mip_pdu_size, 0, (const struct sockaddr *)&our_addr, sizeof(our_addr));
+				    if (sent_bytes == -1) {
+					    perror("sendto");
+					    exit(EXIT_FAILURE);
+				    };
+				    printf("Sent ping packet:\n");
 				}
 			}
 		}
@@ -554,8 +609,7 @@ void server(char* socket_upper)
 int main(int argc, char **argv)
 {
 	int opt; 
-	bool debug = false;
-	
+
 	printf("%d\n", argc);
 	if (argc < 3)
 	{
@@ -571,8 +625,7 @@ int main(int argc, char **argv)
 			break;
 		case 'h':
 			printf("Usage: %s "
-			       "[-s] server mode "
-			       "[-c] client mode\n", argv[0]);
+			       "mipd [-h] [-d] <socket_upper> <MIP address>\n", argv[0]);
 			exit(0);
 		}
 	}

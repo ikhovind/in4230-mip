@@ -5,13 +5,18 @@
 #define MIP_BUILDER_H
 
 #include <stdint.h>
-#include <stddef.h>
 
 #define PING_SDU_TYPE 0x02
 #define ARP_SDU_TYPE 0x01
 #define ARP_REQUEST_TYPE 0x0
 #define ARP_RESPONSE_TYPE 0x1
-#define MIP_MAX_LENGTH 511
+// constrained by length field in header: 2 ^ 9 - 1 = 511
+#define MIP_SDU_MAX_LENGTH 511
+// due to packing (?)
+#define MIP_HEADER_SIZE 4
+#define MIP_ARP_SDU_SIZE 4
+#define MIP_ARP_PDU_SIZE (MIP_HEADER_SIZE + MIP_ARP_SDU_SIZE)
+#define MIP_PDU_MAX_SIZE (MIP_SDU_MAX_LENGTH + MIP_HEADER_SIZE)
 
 typedef struct {
     uint8_t mip_address;
@@ -84,6 +89,7 @@ void print_mip_ping_sdu(mip_ping_sdu* sdu);
 /**
 * build a mip_pdu struct
 *
+* @param target The output mip_pdu must be initialized by the caller.
 * @param sdu The sdu to include in the pdu.
 *      If sdu_type is PING_SDU_TYPE, sdu must be a mip_ping_sdu struct.
 *      If sdu_type is ARP_SDU_TYPE, sdu must be a mip_arp_sdu struct.

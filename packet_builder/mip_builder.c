@@ -12,7 +12,7 @@ void serialize_mip_ping_sdu(uint8_t* target, mip_ping_sdu* sdu) {
     // Copy mip_address to buffer
     target[0] = sdu->mip_address;
 
-    // Copy message to buffer, after size and mip_address
+    // Copy message to buffer after mip_address
     strcpy((char*) target + 1, sdu->message);
 }
 
