@@ -115,7 +115,7 @@ int main(int argc, char** argv)
 		mip_ping_sdu* rec_ping_sdu = malloc(sizeof(mip_ping_sdu));
 		deserialize_mip_ping_sdu(rec_ping_sdu, buf);
 		printf("Received:\n");
-		print_mip_ping_sdu(rec_ping_sdu);
+		print_mip_ping_sdu(rec_ping_sdu, 2);
 		free(rec_ping_sdu->message);
 		free(rec_ping_sdu);
 	}

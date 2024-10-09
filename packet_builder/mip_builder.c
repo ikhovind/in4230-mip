@@ -57,39 +57,54 @@ void deserialize_mip_pdu(mip_pdu* target, uint8_t* serial_pdu) {
     }
 }
 
-void print_mip_ping_sdu(mip_ping_sdu* sdu) {
-    if (!sdu) {
-        return;
-    }
-    printf("ping SDU:\n");
-    printf("{\n   mip_address: %d\n", sdu->mip_address);
-    printf("   Message: %s\n", sdu->message);
-    printf("\n}\n");
+// Function to print mip_ping_sdu
+void print_mip_ping_sdu(mip_ping_sdu* sdu, int indent) {
+    printf("%*sMIP Address: 0x%d\n", indent, "", sdu->mip_address);
+    printf("%*sMessage: %s\n", indent, "", sdu->message);
 }
 
-void print_mip_arp_sdu(mip_arp_sdu* sdu) {
-    printf("arp SDU:\n");
-    printf("{\n   type: 0x%x\n", sdu->type);
-    printf("   mip_address: %d\n}\n", sdu->mip_address);
+// Function to print mip_arp_sdu
+void print_mip_arp_sdu(mip_arp_sdu* sdu, int indent) {
+    if (sdu->type == ARP_REQUEST_TYPE) {
+        printf("%*sType: %s\n", indent, "", "ARP_REQUEST_TYPE");
+    } else if (sdu->type == ARP_RESPONSE_TYPE) {
+        printf("%*sType: %s\n", indent, "", "ARP_RESPONSE_TYPE");
+    } else {
+        printf("%*sType: %s\n", indent, "", "Unknown arp type");
+    }
+    printf("%*sMIP Address: %d\n", indent, "", sdu->mip_address);
 }
 
-void print_mip_pdu(mip_pdu* pdu) {
-    if (!pdu) {
-        return;
+// Function to print mip_header
+void print_mip_header(mip_header* header, int indent) {
+    printf("%*sDest Address: %d\n", indent, "", header->dest_address);
+    printf("%*sSource Address: %d\n", indent, "", header->source_address);
+    printf("%*sTTL: %u\n", indent, "", header->ttl);
+    printf("%*sSDU Length: %u\n", indent, "", header->sdu_len);
+    if (header->sdu_type == PING_SDU_TYPE) {
+        printf("%*sSDU Type: %s\n", indent, "", "PING_SDU_TYPE");
+    } else if (header->sdu_type == ARP_SDU_TYPE) {
+        printf("%*sSDU Type: %s\n", indent, "", "ARP_SDU_TYPE");
+    } else {
+        printf("%*sSDU Type: %s\n", indent, "", "Unknown SDU Type");
     }
-    printf("mip PDU:\n");
-    printf("{\n   dest_address: %d\n", pdu->header.dest_address);
-    printf("   source_address: %d\n", pdu->header.source_address);
-    printf("   ttl: %d\n", pdu->header.ttl);
-    printf("   sdu_len: %d\n", pdu->header.sdu_len);
-    printf("   sdu_type: %d\n", pdu->header.sdu_type);
+}
 
-    if (pdu->header.sdu_type == PING_SDU_TYPE) {
-        print_mip_ping_sdu((mip_ping_sdu*)pdu->sdu);
-    } else if (pdu->header.sdu_type == ARP_SDU_TYPE) {
-        print_mip_arp_sdu((mip_arp_sdu*)pdu->sdu);
+// Function to print mip_pdu
+void print_mip_pdu(mip_pdu* pdu, int indent) {
+    print_mip_header(&pdu->header, indent);
+    printf("%*sSDU:\n", indent, "");
+    switch (pdu->header.sdu_type) {
+        case PING_SDU_TYPE:
+            print_mip_ping_sdu(pdu->sdu, indent + 4);
+        break;
+        case ARP_SDU_TYPE:
+            print_mip_arp_sdu(pdu->sdu, indent + 4);
+        break;
+        default:
+            printf("%*sUnknown SDU Type: 0x%x\n", indent + 4, "", pdu->header.sdu_type);
+        break;
     }
-    printf("}\n");
 }
 
 void build_mip_pdu(mip_pdu* target, void* sdu, uint8_t source_address, uint8_t dest_address, uint8_t ttl, uint8_t type) {
@@ -107,13 +122,14 @@ void build_mip_pdu(mip_pdu* target, void* sdu, uint8_t source_address, uint8_t d
     }
     else if (type == ARP_SDU_TYPE) {
         mip_arp_sdu* arp_sdu = (mip_arp_sdu*) sdu;
-        //arp_sdu->type = ARP_REQUEST_TYPE;
+        arp_sdu->type = ARP_REQUEST_TYPE;
+        arp_sdu->mip_address = dest_address;
 
         target->header.dest_address = dest_address;
         target->header.source_address = source_address;
         target->header.ttl = ttl;
         target->header.sdu_type = ARP_SDU_TYPE;
-        target->header.sdu_len = sizeof(mip_arp_sdu);
+        target->header.sdu_len = sizeof(*arp_sdu);
 
         target->sdu = arp_sdu;
     }

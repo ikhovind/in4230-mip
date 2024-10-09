@@ -130,18 +130,58 @@ void test_serialize_eth_pdu(void) {
     // check that content of deserialized pdu is the same as the serialized one
     TEST_ASSERT_EQUAL_MEMORY(header.dest_address, deserialized_eth_pdu.header.dest_address, ETH_ADDR_LEN);
     TEST_ASSERT_EQUAL_MEMORY(header.source_address, deserialized_eth_pdu.header.source_address, ETH_ADDR_LEN);
-    TEST_ASSERT_EQUAL(header.ethertype, deserialized_eth_pdu.header.ethertype);
+   	TEST_ASSERT_EQUAL(header.ethertype, deserialized_eth_pdu.header.ethertype);
 
     mip_pdu deserialized_mip_pdu = deserialized_eth_pdu.mip_pdu;
     TEST_ASSERT_EQUAL(mipPdu.header.dest_address, deserialized_mip_pdu.header.dest_address);
     TEST_ASSERT_EQUAL(mipPdu.header.source_address, deserialized_mip_pdu.header.source_address);
     TEST_ASSERT_EQUAL(mipPdu.header.ttl, deserialized_mip_pdu.header.ttl);
     TEST_ASSERT_EQUAL(mipPdu.header.sdu_len, deserialized_mip_pdu.header.sdu_len);
-    TEST_ASSERT_EQUAL(mipPdu.header.sdu_type, deserialized_mip_pdu.header.sdu_type);
+    TEST_ASSERT_EQUAL(PING_SDU_TYPE, deserialized_mip_pdu.header.sdu_type);
 
     mip_ping_sdu* deserialized_sdu = (mip_ping_sdu*)deserialized_mip_pdu.sdu;
     TEST_ASSERT_EQUAL(sdu.mip_address, deserialized_sdu->mip_address);
     TEST_ASSERT_EQUAL_STRING(sdu.message, deserialized_sdu->message);
+}
+
+void test_serialize_eth_pdu_with_arp_mip() {
+    eth_pdu pdu;
+    eth_header header;
+    mip_pdu mipPdu;
+    mip_arp_sdu sdu;
+
+    sdu.type = 1;
+    sdu.mip_address = 99;
+
+    uint8_t dest_address[6] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05};
+    uint8_t source_address[6] = {0x05, 0x04, 0x03, 0x02, 0x01, 0x00};
+    uint16_t ethertype = 0x88B5;
+
+    build_eth_header(&header, dest_address, source_address, 0x88b);
+    build_mip_pdu(&mipPdu, &sdu, 100, 200, 1, ARP_SDU_TYPE);
+    build_eth_pdu(&pdu, &header, &mipPdu);
+
+    uint8_t serialized[ETH_PDU_MAX_SIZE];
+    serialize_eth_pdu(serialized, &pdu);
+
+    eth_pdu deserialized_eth_pdu;
+    deserialize_eth_pdu(&deserialized_eth_pdu, serialized);
+
+    // check that content of deserialized pdu is the same as the serialized one
+    TEST_ASSERT_EQUAL_MEMORY(header.dest_address, deserialized_eth_pdu.header.dest_address, ETH_ADDR_LEN);
+    TEST_ASSERT_EQUAL_MEMORY(header.source_address, deserialized_eth_pdu.header.source_address, ETH_ADDR_LEN);
+   	TEST_ASSERT_EQUAL(header.ethertype, deserialized_eth_pdu.header.ethertype);
+
+    mip_pdu deserialized_mip_pdu = deserialized_eth_pdu.mip_pdu;
+    TEST_ASSERT_EQUAL(mipPdu.header.dest_address, deserialized_mip_pdu.header.dest_address);
+    TEST_ASSERT_EQUAL(mipPdu.header.source_address, deserialized_mip_pdu.header.source_address);
+    TEST_ASSERT_EQUAL(mipPdu.header.ttl, deserialized_mip_pdu.header.ttl);
+    TEST_ASSERT_EQUAL(mipPdu.header.sdu_len, deserialized_mip_pdu.header.sdu_len);
+    TEST_ASSERT_EQUAL(ARP_SDU_TYPE, deserialized_mip_pdu.header.sdu_type);
+
+    mip_arp_sdu* deserialized_sdu = (mip_arp_sdu*)deserialized_mip_pdu.sdu;
+    TEST_ASSERT_EQUAL(sdu.mip_address, deserialized_sdu->mip_address);
+    TEST_ASSERT_EQUAL(sdu.type, deserialized_sdu->type);
 }
 
 // not needed when using generate_test_runner.rb
@@ -152,5 +192,6 @@ int main(void) {
     RUN_TEST(test_serialize_mip_ping_sdu);
     RUN_TEST(test_deserialize_mip_ping_sdu);
     RUN_TEST(test_serialize_eth_pdu);
+    RUN_TEST(test_serialize_eth_pdu_with_arp_mip);
     return UNITY_END();
 }

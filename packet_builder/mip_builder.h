@@ -13,10 +13,6 @@
 // constrained by length field in header: 2 ^ 9 - 1 = 511
 #define MIP_SDU_MAX_LENGTH 511
 // due to packing (?)
-#define MIP_HEADER_SIZE 4
-#define MIP_ARP_SDU_SIZE 4
-#define MIP_ARP_PDU_SIZE (MIP_HEADER_SIZE + MIP_ARP_SDU_SIZE)
-#define MIP_PDU_MAX_SIZE (MIP_SDU_MAX_LENGTH + MIP_HEADER_SIZE)
 
 typedef struct {
     uint8_t mip_address;
@@ -41,6 +37,16 @@ typedef struct {
     mip_header header;
     void* sdu;
 } mip_pdu;
+
+enum {
+    MIP_HEADER_SIZE = sizeof(mip_header),
+
+    MIP_ARP_SDU_SIZE = sizeof(mip_arp_sdu),
+    MIP_PING_SDU_MAX_SIZE = sizeof(mip_ping_sdu) + MIP_SDU_MAX_LENGTH,
+
+    MIP_ARP_PDU_SIZE = MIP_HEADER_SIZE + MIP_ARP_SDU_SIZE,
+    MIP_PDU_MAX_SIZE = MIP_HEADER_SIZE + MIP_SDU_MAX_LENGTH,
+};
 
 /**
 * Serialize a mip_ping_sdu struct to a byte array
@@ -82,11 +88,6 @@ void serialize_mip_pdu(uint8_t* target, mip_pdu* pdu);
 void deserialize_mip_pdu(mip_pdu* target, uint8_t* serial_pdu);
 
 /**
-* Print a mip_ping_sdu struct to stdout
-*/
-void print_mip_ping_sdu(mip_ping_sdu* sdu);
-
-/**
 * build a mip_pdu struct
 *
 * @param target The output mip_pdu must be initialized by the caller.
@@ -103,11 +104,19 @@ void build_mip_pdu(mip_pdu* target, void* sdu, uint8_t source_address, uint8_t d
 /**
  * Print a mip_arp_sdu struct to stdout
  */
-void print_mip_pdu(mip_pdu* pdu);
+void print_mip_pdu(mip_pdu* pdu, int indent);
 /**
 * Print a mip_arp_sdu struct to stdout
 */
-void print_mip_arp_sdu(mip_arp_sdu* sdu);
+void print_mip_arp_sdu(mip_arp_sdu* sdu, int indent);
 
+// Function to print mip_ping_sdu
+void print_mip_ping_sdu(mip_ping_sdu* sdu, int indent);
+
+// Function to print mip_arp_sdu
+void print_mip_arp_sdu(mip_arp_sdu* sdu, int indent);
+
+// Function to print mip_header
+void print_mip_header(mip_header* header, int indent);
 
 #endif //MIP_BUILDER_H
