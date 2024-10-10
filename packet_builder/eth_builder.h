@@ -11,7 +11,7 @@
 #define ETH_TYPE_LEN 2
 #define ETH_HEADER_LEN (ETH_ADDR_LEN * 2 + ETH_TYPE_LEN)
 
-#define ETH_MIP_TYPE 0x88b5
+#define ETH_P_MIP 0x88b5
 
 typedef struct {
     uint8_t dest_address[6];

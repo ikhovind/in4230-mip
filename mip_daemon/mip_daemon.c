@@ -70,7 +70,7 @@ int raw_socket()
 	int	raw_sock;
 
 	/* Set up a raw AF_PACKET socket without ethertype filtering */
-	raw_sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_MIP_TYPE));
+	raw_sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_MIP));
 	if (raw_sock == -1) {
 		perror("socket");
 		return -1;
@@ -195,7 +195,7 @@ int broadcast(mip_pdu* broadcast_pdu, int raw_sd) {
     // Construct the Ethernet frame
 	eth_header broadcast_header;
 
-	build_eth_header(&broadcast_header, BROADCAST_MAC, our_addr.sll_addr, ETH_MIP_TYPE);
+	build_eth_header(&broadcast_header, BROADCAST_MAC, our_addr.sll_addr, ETH_P_MIP);
 	eth_pdu broadcast_eth_pdu;
 	build_eth_pdu(&broadcast_eth_pdu, &broadcast_header, broadcast_pdu);
 
@@ -406,7 +406,7 @@ void server(char* socket_upper)
 							build_mip_pdu(&mip_pdu, &arp_sdu_response, mip_address, received_eth_pdu.mip_pdu.header.source_address, 1, ARP_SDU_TYPE);
 
 							eth_header eth_arp_response_header;
-							build_eth_header(&eth_arp_response_header, received_eth_pdu.header.source_address, our_addr.sll_addr, ETH_MIP_TYPE);
+							build_eth_header(&eth_arp_response_header, received_eth_pdu.header.source_address, our_addr.sll_addr, ETH_P_MIP);
 
 							eth_pdu eth_arp_response;
 							build_eth_pdu(&eth_arp_response, &eth_arp_response_header, &mip_pdu);
@@ -507,7 +507,7 @@ void server(char* socket_upper)
 				    size_t mip_pdu_size = ping_pdu.header.sdu_len + sizeof(mip_header);
 
 					eth_header ping_eth_header;
-					build_eth_header(&ping_eth_header, dest_mac, our_addr.sll_addr, ETH_MIP_TYPE);
+					build_eth_header(&ping_eth_header, dest_mac, our_addr.sll_addr, ETH_P_MIP);
 
 					eth_pdu ping_eth_pdu;
 					build_eth_pdu(&ping_eth_pdu, &ping_eth_header, &ping_pdu);

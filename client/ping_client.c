@@ -91,6 +91,9 @@ int main(int argc, char** argv)
 	uint8_t *serialized = malloc(sizeof(uint8_t) + strlen(ping_sdu.message) + 1);
 	serialize_mip_ping_sdu(serialized, &ping_sdu);
 	printf("Writing to server\n");
+	// start counter to measrure RTT
+	struct timeval start;
+	gettimeofday(&start, NULL);
 	rc = write(sd, serialized, sizeof(uint8_t) + strlen(ping_sdu.message) + 1);
 
 	free(serialized);
@@ -112,6 +115,10 @@ int main(int argc, char** argv)
 			perror("recv");
 		}
 	} else if (bytes_received > 0) {
+		// print RTT
+		struct timeval end;
+		gettimeofday(&end, NULL);
+		printf("RTT: %ld ms\n", (end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) / 1000);
 		mip_ping_sdu* rec_ping_sdu = malloc(sizeof(mip_ping_sdu));
 		deserialize_mip_ping_sdu(rec_ping_sdu, buf);
 		printf("Received:\n");
