@@ -22,8 +22,8 @@
 
 
 #define MAX_EVENTS 10
-#define BUF_SIZE 1450
 #define DST_MAC_ADDR {0x00, 0x00, 0x00, 0x00, 0x00, 0x02}
+uint8_t mip_sdu_buf[MIP_SDU_MAX_LENGTH];
 
 
 int main(int argc, char** argv)
@@ -63,7 +63,6 @@ int main(int argc, char** argv)
 
 	struct sockaddr_un addr;
 	int	   sd, rc;
-	char   buf[256];
 
 	sd = socket(AF_UNIX, SOCK_SEQPACKET, 0);
 	if (sd < 0) {
@@ -88,25 +87,20 @@ int main(int argc, char** argv)
 		exit(EXIT_FAILURE);
 	}
 
-	uint8_t *serialized = malloc(sizeof(uint8_t) + strlen(ping_sdu.message) + 1);
-	serialize_mip_ping_sdu(serialized, &ping_sdu);
+	serialize_mip_ping_sdu(mip_sdu_buf, &ping_sdu);
 	printf("Writing to server\n");
 	// start counter to measrure RTT
 	struct timeval start;
 	gettimeofday(&start, NULL);
-	rc = write(sd, serialized, sizeof(uint8_t) + strlen(ping_sdu.message) + 1);
-
-	free(serialized);
+	rc = write(sd, mip_sdu_buf, sizeof(uint8_t) + strlen(ping_sdu.message) + 1);
 
 	if (rc < 0) {
 		perror("write");
 		close(sd);
 		exit(EXIT_FAILURE);
 	}
-	memset(buf, 0, 256);
-
 	// Receive message
-	ssize_t bytes_received = recv(sd, buf, sizeof(buf) - 1, 0);
+	ssize_t bytes_received = recv(sd, mip_sdu_buf, sizeof(mip_sdu_buf), 0);
 
 	if (bytes_received == -1) {
 		if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -118,13 +112,16 @@ int main(int argc, char** argv)
 		// print RTT
 		struct timeval end;
 		gettimeofday(&end, NULL);
-		printf("RTT: %ld ms\n", (end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) / 1000);
-		mip_ping_sdu* rec_ping_sdu = malloc(sizeof(mip_ping_sdu));
-		deserialize_mip_ping_sdu(rec_ping_sdu, buf);
-		printf("Received:\n");
-		print_mip_ping_sdu(rec_ping_sdu, 2);
-		free(rec_ping_sdu->message);
-		free(rec_ping_sdu);
+		mip_ping_sdu rec_ping_sdu;
+		// check if message matches what we sent
+		deserialize_mip_ping_sdu(&rec_ping_sdu, mip_sdu_buf);
+
+		snprintf(mip_sdu_buf, sizeof(mip_sdu_buf), "PONG:%s", message);
+		if (strcmp(rec_ping_sdu.message, mip_sdu_buf) == 0) {
+			printf("RTT: %ld ms\n", (end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) / 1000);
+			print_mip_ping_sdu(&rec_ping_sdu, 2);
+			free(rec_ping_sdu.message);
+		}
 	}
 
 	exit(0);
