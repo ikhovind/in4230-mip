@@ -39,8 +39,11 @@
 
 static uint8_t mip_address;
 static arp_cache cache;
-char socket_name[256];
 static arp_context awaiting_arp;
+// for communicating with nodes over unix socket
+uint8_t node_buffer[MIP_SDU_MAX_LENGTH];
+// for communicating with other mips over raw socket
+uint8_t mipd_buffer[ETH_PDU_MAX_SIZE];
 
 int unix_sd;
 int raw_sd;
@@ -184,7 +187,7 @@ static int add_to_epoll_table(int efd, struct epoll_event *ev, int fd)
 }
 
 
-int broadcast(mip_pdu* broadcast_pdu, int raw_sd, struct sockaddr_ll addr) {
+int broadcast_on_interface(mip_pdu* broadcast_pdu, struct sockaddr_ll addr) {
     // Construct the Ethernet frame
 	eth_header broadcast_header;
 
@@ -195,8 +198,7 @@ int broadcast(mip_pdu* broadcast_pdu, int raw_sd, struct sockaddr_ll addr) {
 	eth_pdu broadcast_eth_pdu;
 	build_eth_pdu(&broadcast_eth_pdu, &broadcast_header, broadcast_pdu);
 
-	uint8_t serial_eth_arp [ETH_ARP_SIZE];
-	serialize_eth_pdu(serial_eth_arp, &broadcast_eth_pdu);
+	serialize_eth_pdu(mipd_buffer, &broadcast_eth_pdu);
 
 	if (debug) {
 		printf("Sending ARP request:\n");
@@ -206,7 +208,7 @@ int broadcast(mip_pdu* broadcast_pdu, int raw_sd, struct sockaddr_ll addr) {
 	}
 
     // Send the Ethernet frame
-    if (sendto(raw_sd, serial_eth_arp, ETH_ARP_SIZE, 0, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
+    if (sendto(raw_sd, mipd_buffer, ETH_ARP_SIZE, 0, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
         perror("Failed to send the frame");
         close(raw_sd);
         exit(EXIT_FAILURE);
@@ -233,7 +235,7 @@ void send_broadcast_for_mip(uint8_t mip_dest_address) {
         if (ifp->ifa_addr != NULL && ifp->ifa_addr->sa_family == AF_PACKET) {
         	// Avoid loopback so we don't send to ourselves
         	if (strcmp("lo", ifp->ifa_name) != 0) {
-        		broadcast(&mip_pdu, raw_sd, *(struct sockaddr_ll*)ifp->ifa_addr);
+        		broadcast_on_interface(&mip_pdu, *(struct sockaddr_ll*)ifp->ifa_addr);
         	}
         }
     }
@@ -241,7 +243,7 @@ void send_broadcast_for_mip(uint8_t mip_dest_address) {
 }
 
 // Check if the packet in arp_context can be sent with the data currently in our cache
-void send_packet_from_context_if_possible() {
+void send_waiting_ping_if_possible() {
 	if (!awaiting_arp.is_waiting_packet) {
 		return;
 	}
@@ -250,7 +252,6 @@ void send_packet_from_context_if_possible() {
 	// get the mac address of the destination
 	printf("addr of packet is: %p\n", packet);
 	arp_cache_index* dest = get_mac_address(&cache, packet->header.dest_address);
-	uint8_t eth_buffer[ETH_PDU_MAX_SIZE];
 	// if the destination is in the cache, send the packet
 	if (dest != NULL) {
 		// 6. If the client is found, we should send the ping
@@ -265,7 +266,7 @@ void send_packet_from_context_if_possible() {
 		eth_pdu ping_eth_pdu;
 		build_eth_pdu(&ping_eth_pdu, &ping_eth_header, packet);
 
-		serialize_eth_pdu(eth_buffer, &ping_eth_pdu);
+		serialize_eth_pdu(mipd_buffer, &ping_eth_pdu);
 
 		if (debug) {
 			printf("Sending ping packet from context:\n");
@@ -275,7 +276,7 @@ void send_packet_from_context_if_possible() {
 		printf("Setting awaiting packet to zero\n");
 		awaiting_arp.is_waiting_packet = 0;
 
-		ssize_t sent_bytes = sendto(raw_sd, eth_buffer, ETH_HEADER_LEN + mip_pdu_size, 0, (const struct sockaddr *)&dest->ll_addr, sizeof(dest->ll_addr));
+		ssize_t sent_bytes = sendto(raw_sd, mipd_buffer, ETH_HEADER_LEN + mip_pdu_size, 0, (const struct sockaddr *)&dest->ll_addr, sizeof(dest->ll_addr));
 		if (sent_bytes == -1) {
 			perror("sendto");
 			exit(EXIT_FAILURE);
@@ -289,10 +290,6 @@ void server(char* socket_upper)
 {
 	struct epoll_event ev, events[MAX_EVENTS];
 	int	   accept_sd, epollfd, rc;
-	// for communicating with nodes over unix socket
-	uint8_t node_buffer[MIP_SDU_MAX_LENGTH];
-	// for communicating with other mips over raw socket
-	uint8_t mipd_buffer[ETH_PDU_MAX_SIZE];
 
 
 	// Set up signal handler for SIGINT
@@ -396,7 +393,7 @@ void server(char* socket_upper)
 				if (received_eth_pdu.mip_pdu.header.sdu_type == ARP_SDU_TYPE) {
 					if (((mip_arp_sdu*)received_eth_pdu.mip_pdu.sdu)->type == ARP_RESPONSE_TYPE) {
 						insert_cache_index(&cache, received_eth_pdu.mip_pdu.header.source_address, received_eth_pdu.header.source_address, recv_addr);
-						send_packet_from_context_if_possible();
+						send_waiting_ping_if_possible();
 					}
 					else if (((mip_arp_sdu*)received_eth_pdu.mip_pdu.sdu)->type == ARP_REQUEST_TYPE) {
 						// If broadcast then we first learn the MAC address of the sender
@@ -444,8 +441,7 @@ void server(char* socket_upper)
 				if (received_eth_pdu.mip_pdu.header.sdu_type == PING_SDU_TYPE) {
 
 					mip_ping_sdu ping_sdu = {
-						// swap source and dest addresses so that the response will be sent to the correct node
-						// if we are sending to ping_server now
+						// swap source and dest addresses so that if there is a response, it will be sent to the correct node
 						.mip_address = received_eth_pdu.mip_pdu.header.source_address,
 						.message = ((mip_ping_sdu*) received_eth_pdu.mip_pdu.sdu)->message,
 					};
@@ -501,6 +497,7 @@ void server(char* socket_upper)
 					// 5. If the client is not found, we should send broadcast
 				    if (dest == NULL) {
 					    send_broadcast_for_mip(ping_pdu.header.dest_address);
+				    	// this will be sent when we later receive a response
 				    	awaiting_arp.awaiting_arp_response[0] = ping_pdu;
 				    	awaiting_arp.is_waiting_packet = 1;
 				    } else {
@@ -578,7 +575,6 @@ int main(int argc, char **argv)
 		printf("Running in debug mode\n");
 	}
 	char* socket_upper = argv[pos_arg_start];
-	strcpy(socket_name, socket_upper);
 	mip_address = atoi(argv[pos_arg_start + 1]);
 
 	printf("%p\n", argv);
