@@ -4,10 +4,12 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <linux/if_packet.h>
 
 typedef struct {
     uint8_t mip_addr;
     uint8_t mac_address[6];
+    struct sockaddr_ll ll_addr;
 } arp_cache_index;
 
 typedef struct {
@@ -17,8 +19,9 @@ typedef struct {
 
 
 
-uint8_t* get_mac_address(arp_cache* cache, uint8_t mip_addr);
-bool insert_cache_index(arp_cache* cache, uint8_t mip_addr, uint8_t* mac_address);
+arp_cache_index* get_mac_address(arp_cache* cache, uint8_t mip_addr);
+bool insert_cache_index(arp_cache* cache, uint8_t mip_addr, uint8_t* mac_address, struct sockaddr_ll ll_addr);
+void print_arp_cache(arp_cache* cache, int indent);
 
 
 

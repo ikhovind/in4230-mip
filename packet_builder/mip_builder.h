@@ -99,7 +99,7 @@ void deserialize_mip_pdu(mip_pdu* target, uint8_t* serial_pdu);
 * @param ttl Time To Live; maximum hop count
 * @param sdu_type The type of the sdu. Must be either PING_SDU_TYPE or ARP_SDU_TYPE.
 */
-void build_mip_pdu(mip_pdu* target, void* sdu, uint8_t source_address, uint8_t dest_address, uint8_t ttl, uint8_t sdu_type);
+void build_mip_pdu(mip_pdu* target, void* sdu, uint8_t source_address, uint8_t dest_address, uint8_t ttl, uint8_t type);
 
 /**
  * Print a mip_arp_sdu struct to stdout

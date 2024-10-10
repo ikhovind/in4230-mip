@@ -28,7 +28,7 @@ enum {
     ETH_HEADER_SIZE = sizeof(eth_header),
     ETH_PDU_MAX_SIZE = ETH_HEADER_SIZE + MIP_PDU_MAX_SIZE,
 
-    ETH_ARP_SIZE = ETH_HEADER_SIZE + MIP_ARP_SDU_SIZE,
+    ETH_ARP_SIZE = ETH_HEADER_SIZE + MIP_ARP_PDU_SIZE,
 };
 
 void build_eth_header(eth_header* header, uint8_t* dest_address, uint8_t* source_address, uint16_t ethertype);

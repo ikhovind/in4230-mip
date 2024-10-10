@@ -59,7 +59,7 @@ void deserialize_mip_pdu(mip_pdu* target, uint8_t* serial_pdu) {
 
 // Function to print mip_ping_sdu
 void print_mip_ping_sdu(mip_ping_sdu* sdu, int indent) {
-    printf("%*sMIP Address: 0x%d\n", indent, "", sdu->mip_address);
+    printf("%*sMIP Address: 0x%x\n", indent, "", sdu->mip_address);
     printf("%*sMessage: %s\n", indent, "", sdu->message);
 }
 
@@ -72,13 +72,13 @@ void print_mip_arp_sdu(mip_arp_sdu* sdu, int indent) {
     } else {
         printf("%*sType: %s\n", indent, "", "Unknown arp type");
     }
-    printf("%*sMIP Address: %d\n", indent, "", sdu->mip_address);
+    printf("%*sMIP Address: 0x%x\n", indent, "", sdu->mip_address);
 }
 
 // Function to print mip_header
 void print_mip_header(mip_header* header, int indent) {
-    printf("%*sDest Address: %d\n", indent, "", header->dest_address);
-    printf("%*sSource Address: %d\n", indent, "", header->source_address);
+    printf("%*sDest Address: 0x%x\n", indent, "", header->dest_address);
+    printf("%*sSource Address: 0x%x\n", indent, "", header->source_address);
     printf("%*sTTL: %u\n", indent, "", header->ttl);
     printf("%*sSDU Length: %u\n", indent, "", header->sdu_len);
     if (header->sdu_type == PING_SDU_TYPE) {
@@ -108,7 +108,6 @@ void print_mip_pdu(mip_pdu* pdu, int indent) {
 }
 
 void build_mip_pdu(mip_pdu* target, void* sdu, uint8_t source_address, uint8_t dest_address, uint8_t ttl, uint8_t type) {
-    // Fill the MIP header
     if (type == PING_SDU_TYPE) {
         mip_ping_sdu* ping_sdu = (mip_ping_sdu*) sdu;
         target->header.dest_address = dest_address;
@@ -122,10 +121,12 @@ void build_mip_pdu(mip_pdu* target, void* sdu, uint8_t source_address, uint8_t d
     }
     else if (type == ARP_SDU_TYPE) {
         mip_arp_sdu* arp_sdu = (mip_arp_sdu*) sdu;
-        arp_sdu->type = ARP_REQUEST_TYPE;
-        arp_sdu->mip_address = dest_address;
 
-        target->header.dest_address = dest_address;
+        if (arp_sdu->type == ARP_REQUEST_TYPE) {
+            target->header.dest_address = 0xFF;
+        } else {
+            target->header.dest_address = dest_address;
+        }
         target->header.source_address = source_address;
         target->header.ttl = ttl;
         target->header.sdu_type = ARP_SDU_TYPE;
