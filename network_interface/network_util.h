@@ -10,7 +10,7 @@
 
 #define BUF_SIZE 1450
 
-void get_mac_from_interface(struct sockaddr_ll *so_name);
+void get_interface_mac_address(unsigned char local_mac[6], int sll_ifindex, int raw_sd);
 
 
 #endif //NETWORK_UTIL_H

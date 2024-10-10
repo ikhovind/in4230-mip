@@ -22,6 +22,7 @@ typedef struct {
 arp_cache_index* get_mac_address(arp_cache* cache, uint8_t mip_addr);
 bool insert_cache_index(arp_cache* cache, uint8_t mip_addr, uint8_t* mac_address, struct sockaddr_ll ll_addr);
 void print_arp_cache(arp_cache* cache, int indent);
+void print_sockaddr_ll(struct sockaddr_ll ll_addr, int indent);
 
 
 
