@@ -42,8 +42,6 @@ enum {
     MIP_HEADER_SIZE = sizeof(mip_header),
 
     MIP_ARP_SDU_SIZE = sizeof(mip_arp_sdu),
-    MIP_PING_SDU_MAX_SIZE = sizeof(mip_ping_sdu) + MIP_SDU_MAX_LENGTH,
-
     MIP_ARP_PDU_SIZE = MIP_HEADER_SIZE + MIP_ARP_SDU_SIZE,
     MIP_PDU_MAX_SIZE = MIP_HEADER_SIZE + MIP_SDU_MAX_LENGTH,
 };

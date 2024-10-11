@@ -6,6 +6,7 @@
 #include <stdlib.h>       /* free */
 #include <unistd.h>       /* fgets */
 #include <string.h>       /* memset */
+#include <bits/getopt_core.h>
 #include <sys/socket.h>   /* socket */
 
 #include "../network_interface/network_util.h"
@@ -17,9 +18,13 @@ static uint8_t dst_addr[6];
 #include <sys/un.h>
 
 #define BUFFER_SIZE 1024
+#define sun_path_size 108
 
 int main(int argc, char** argv) {
 
+	// include null terminated character and the abstract namespace character
+	char sock_path_buf[sun_path_size];
+	sock_path_buf[0] = '\0';
 	int opt;
 
 	while ((opt = getopt(argc, argv, "h")) != -1) {
@@ -33,13 +38,15 @@ int main(int argc, char** argv) {
 	}
 
 	uint8_t pos_arg_start = 1;
-	char* socket_lower = argv[pos_arg_start];
+	strncpy(sock_path_buf + 1, argv[pos_arg_start], strlen(argv[pos_arg_start]));
 
 
 	int client_fd;
 	struct sockaddr_un server_addr;
-	char buffer[BUFFER_SIZE] = "Hello, Server!";
-	char msg_buffer[BUFFER_SIZE];
+	// len without mip address
+	char msg_buffer[MIP_PDU_MAX_SIZE - 1];
+	// whole SDU
+	char sdu_buffer[MIP_PDU_MAX_SIZE];
 
 	client_fd = socket(AF_UNIX, SOCK_SEQPACKET, 0);
 	if (client_fd == -1) {
@@ -50,7 +57,7 @@ int main(int argc, char** argv) {
 	// Set up the socket address structure
 	memset(&server_addr, 0, sizeof(struct sockaddr_un));
 	server_addr.sun_family = AF_UNIX;
-	strncpy(server_addr.sun_path, socket_lower, sizeof(server_addr.sun_path) - 1);
+	strncpy(server_addr.sun_path, sock_path_buf, sizeof(server_addr.sun_path));
 
 	// Connect to the server
 	if (connect(client_fd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_un)) == -1) {
@@ -59,25 +66,21 @@ int main(int argc, char** argv) {
 		exit(EXIT_FAILURE);
 	}
 	printf("hello world print\n");
-	fflush(stdout);
 
 	// Clear buffer and receive echoed data from the server
 	while(1) {
-		memset(buffer, 0, BUFFER_SIZE);
-		ssize_t num_read = read(client_fd, buffer, BUFFER_SIZE);
+		ssize_t num_read = read(client_fd, sdu_buffer, MIP_PDU_MAX_SIZE);
 		if (num_read > 0) {
-			mip_ping_sdu* ping_sdu = malloc(sizeof(mip_ping_sdu));
-			deserialize_mip_ping_sdu(ping_sdu, buffer);
-			printf("Received: %s\n", ping_sdu->message);
+			mip_ping_sdu ping_sdu;
+			deserialize_mip_ping_sdu(&ping_sdu, sdu_buffer);
+			printf("Received: %s\n", ping_sdu.message);
 			strcpy(msg_buffer, "PONG:");
-			strcat(msg_buffer, ping_sdu->message);
-			ping_sdu->message = msg_buffer;
-			uint8_t *serial_ping_sdu = malloc(sizeof(uint8_t) + strlen(ping_sdu->message) + 1);
-			serialize_mip_ping_sdu(serial_ping_sdu, ping_sdu);
+			strcat(msg_buffer, ping_sdu.message);
+			ping_sdu.message = msg_buffer;
+			serialize_mip_ping_sdu(sdu_buffer, &ping_sdu);
 			printf("msg_buffer: %s\n", msg_buffer);
-			printf("msg: %s\n", ping_sdu->message);
-			write(client_fd, serial_ping_sdu, sizeof(uint8_t) + strlen(ping_sdu->message) + 1);
-			fflush(stdout);
+			printf("msg: %s\n", ping_sdu.message);
+			write(client_fd, sdu_buffer, sizeof(uint8_t) + strlen(ping_sdu.message) + 1);
 		} else if (num_read == -1) {
 			perror("read");
 		}

@@ -133,18 +133,23 @@ static int prepare_server_sock(char* socket_upper)
 
 	addr.sun_family = AF_UNIX;
 
-	/* Why `-1`??? Check character arrays in C!
-	 * 's' 'e' 'r' 'v' 'e' 'r' '.' 's' 'o' 'c' 'k' 'e' 't' '\0'
-	 * sizeof() counts the null-terminated character ('\0') as well.
-	 */
-	strncpy(addr.sun_path, socket_upper, sizeof(addr.sun_path) - 1);
+	char sock_path_buf[sizeof(addr.sun_path)];
 
-	/* Unlink the socket so that we can reuse the program.
-	 * This is bad hack! Better solution with a lock file,
-	 * or signal handling.
+	sock_path_buf[0] = '\0';
+	// reserve space for the abstract namespace character
+	strncpy(sock_path_buf + 1, socket_upper, sizeof(addr.sun_path) - 1);
+
+	/* Why `-1`??? Check character arrays in C!
+	 * '\0', 's' 'e' 'r' 'v' 'e' 'r' '.' 's' 'o' 'c' 'k' 'e' 't' '\0'
+	 * sizeof() counts the final null-terminated character ('\0') as well.
+	 *
+	 *
+	 */
+	strncpy(addr.sun_path, sock_path_buf, sizeof(addr.sun_path) - 1);
+
+	/* No need to unlink as we are using abstract namespace sockets
 	 * Check https://gavv.github.io/articles/unix-socket-reuse
 	 */
-	unlink(socket_upper);
 
 	rc = bind(sd, (const struct sockaddr *)&addr, sizeof(addr));
 	if (rc == -1) {

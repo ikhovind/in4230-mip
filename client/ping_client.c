@@ -14,6 +14,7 @@
 #include <net/ethernet.h>	/* ETH_* */
 #include <arpa/inet.h>	/* htons */
 #include <errno.h>
+#include <bits/getopt_core.h>
 
 #include <sys/un.h>	/* definitions for UNIX domain sockets */
 #include <sys/time.h>
@@ -28,8 +29,9 @@ uint8_t mip_sdu_buf[MIP_SDU_MAX_LENGTH];
 
 int main(int argc, char** argv)
 {
-	int opt; 
-	
+	struct sockaddr_un addr;
+	int	   opt, sd, rc;
+
 	while ((opt = getopt(argc, argv, "h")) != -1) {
 		switch (opt) {
 			case 'h':
@@ -48,7 +50,12 @@ int main(int argc, char** argv)
 		exit(EXIT_FAILURE);
 	}
 
+	// reserve space for abstract namespace character
+	char sock_path_buf[sizeof(addr.sun_path) - 1];
+	sock_path_buf[0] = '\0';
+
 	uint8_t pos_arg_start = 1;
+	strncpy(sock_path_buf + 1, argv[pos_arg_start], strlen(argv[pos_arg_start]));
 	char* socket_lower = argv[pos_arg_start];
 	uint8_t dest_host = atoi(argv[pos_arg_start + 1]);
 	char* message = argv[pos_arg_start + 2];
@@ -61,8 +68,6 @@ int main(int argc, char** argv)
 	timeout.tv_sec = 1; // Set timeout to 1 second
 	timeout.tv_usec = 0;
 
-	struct sockaddr_un addr;
-	int	   sd, rc;
 
 	sd = socket(AF_UNIX, SOCK_SEQPACKET, 0);
 	if (sd < 0) {
@@ -72,7 +77,7 @@ int main(int argc, char** argv)
 
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
-	strncpy(addr.sun_path, socket_lower, sizeof(addr.sun_path) - 1);
+	strncpy(addr.sun_path, sock_path_buf, sizeof(addr.sun_path) - 2);
 
 	rc = connect(sd, (struct sockaddr *)&addr, sizeof(addr));
 	if ( rc < 0) {
