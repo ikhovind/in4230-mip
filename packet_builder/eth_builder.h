@@ -58,6 +58,14 @@ void serialize_eth_pdu(uint8_t* target, const eth_pdu* pdu);
 /**
  * @brief Deserialize an Ethernet PDU
  *
+ * This function will invoce deserialize_mip_pdu, this function will allocate memory for target->mip_pdu.sdu,
+ * which must be freed by the caller.
+ *
+ * If the contained MIP PDU is a ping sdu, this function will invoke deserialize_mip_ping_sdu, this function will
+ * allocate memory for target->mip_pdu.sdu->message, which must be freed by the caller.
+ *
+ * This can be done by using free_mip_pdu.
+ *
  * @param target[out]: Pointer to the Ethernet PDU to deserialize to
  * @param buffer: Buffer to deserialize from
  */

@@ -45,11 +45,18 @@ void serialize_mip_pdu(uint8_t* target, const mip_pdu* pdu) {
 
 void deserialize_mip_pdu(mip_pdu* target, const uint8_t* serial_pdu) {
     target->header = *(mip_header*)(serial_pdu);
-    target->sdu = malloc(target->header.sdu_len);
+    target->sdu = malloc(target->header.sdu_len * 4);
     if (target->header.sdu_type == PING_SDU_TYPE) {
         deserialize_mip_ping_sdu(target->sdu, serial_pdu + sizeof(mip_header));
     } if (target->header.sdu_type == ARP_SDU_TYPE) {
         target->sdu = (mip_arp_sdu*)(serial_pdu + sizeof(mip_header));
+    }
+}
+
+void free_mip_pdu(mip_pdu* pdu) {
+    if (pdu->header.sdu_type == PING_SDU_TYPE) {
+        free(((mip_ping_sdu*)pdu->sdu)->message);
+        free(pdu->sdu);
     }
 }
 
@@ -112,7 +119,8 @@ void build_mip_pdu(mip_pdu* target, const void* sdu, uint8_t source_address, uin
         target->header.sdu_type = PING_SDU_TYPE;
 
         // + 1 because we include null-terminator in sdu_len
-        target->header.sdu_len = sizeof(ping_sdu->mip_address) + strlen(ping_sdu->message) + 1;
+        // / 4 because it counts 32 bit words
+        target->header.sdu_len = (sizeof(ping_sdu->mip_address) + strlen(ping_sdu->message) + 1) / 4;
         target->sdu = ping_sdu;
     }
     else if (sdu_type == ARP_SDU_TYPE) {
@@ -128,7 +136,7 @@ void build_mip_pdu(mip_pdu* target, const void* sdu, uint8_t source_address, uin
         target->header.source_address = source_address;
         target->header.ttl = ttl;
         target->header.sdu_type = ARP_SDU_TYPE;
-        target->header.sdu_len = sizeof(*arp_sdu);
+        target->header.sdu_len = sizeof(*arp_sdu) / 4;
 
         target->sdu = arp_sdu;
     }

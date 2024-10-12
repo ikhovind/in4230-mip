@@ -25,6 +25,7 @@ int main(int argc, char** argv)
 	struct sockaddr_un addr;
 	int	   opt, sd, rc;
 
+	char msg_buffer[MIP_PDU_MAX_SIZE - 1] = "PING:";
 	while ((opt = getopt(argc, argv, "h")) != -1) {
 		switch (opt) {
 			case 'h':
@@ -53,10 +54,11 @@ int main(int argc, char** argv)
 	// parse dest host using strtol
 	const uint8_t dest_host = strtol(argv[pos_arg_start + 1], NULL, 10);
 	char* message = argv[pos_arg_start + 2];
+	strcat(msg_buffer, message);
 
 	mip_ping_sdu ping_sdu = {
 		.mip_address = dest_host,
-		.message = message
+		.message = msg_buffer
 	};
 	struct timeval timeout;
 	timeout.tv_sec = 1; // Set timeout to 1 second
@@ -119,8 +121,8 @@ int main(int argc, char** argv)
 		if (strcmp(rec_ping_sdu.message, mip_sdu_buf) == 0) {
 			printf("RTT: %ld ms\n", (end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) / 1000);
 			print_mip_ping_sdu(&rec_ping_sdu, 2);
-			free(rec_ping_sdu.message);
 		}
+		free(rec_ping_sdu.message);
 	}
 
 	exit(0);

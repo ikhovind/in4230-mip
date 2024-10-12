@@ -50,7 +50,7 @@ bool insert_cache_index(ArpCache* cache, uint8_t mip_addr, uint8_t* mac_address,
 void print_arp_cache(ArpCache* cache, int indent);
 
 /**
-* @brief Print an sockaddr_ll in a human-readable format.
+* @brief Print a sockaddr_ll in a human-readable format.
 * @param ll_addr The sockaddr_ll to print.
 * @param indent Base indentation level of output.
 */

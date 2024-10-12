@@ -201,7 +201,7 @@ static int prepare_unix_socket(const char* socket_upper)
 }
 
 static void send_packet_on_raw_socket(const mip_pdu* packet, const uint8_t* mac_dest, const struct sockaddr_ll* addr) {
-	const size_t mip_pdu_size = packet->header.sdu_len + sizeof(mip_header);
+	const size_t mip_pdu_size = packet->header.sdu_len * 4 + sizeof(mip_header);
 
 	// source MAC address
 	unsigned char local_mac[6];
@@ -277,9 +277,9 @@ static void send_waiting_ping_if_possible() {
 		return;
 	}
 	// get the first packet in the cache
-	mip_pdu* packet = &packet_cache.awaiting_arp_response[0];
+	const mip_pdu* packet = &packet_cache.awaiting_arp_response[0];
 	// get the mac address of the destination
-	ArpCacheIndex* dest = get_mac_address(&arp_cache, packet->header.dest_address);
+	const ArpCacheIndex* dest = get_mac_address(&arp_cache, packet->header.dest_address);
 	// if the destination is in the cache, send the packet
 	if (dest != NULL) {
 		// 6. If the client is found, we should send the ping
@@ -287,7 +287,7 @@ static void send_waiting_ping_if_possible() {
 			printf("Sending ping packet which was cached:\n");
 		}
 		send_packet_on_raw_socket(packet, dest->mac_address, &dest->ll_addr);
-
+		free(((mip_ping_sdu*)packet->sdu)->message);
 		packet_cache.is_waiting_packet = 0;
 	}
 }
@@ -464,6 +464,7 @@ static void server(const char* socket_upper)
 						printf("Unix file descriptor is invalid, cannot forward received ping SDU\n");
 					}
 				}
+				free_mip_pdu(&received_eth_pdu.mip_pdu);
 			} else {
 				/* existing node is trying to send data (ping_client or ping_server) */
 				int node_fd = events[i].data.fd;
@@ -485,6 +486,7 @@ static void server(const char* socket_upper)
 					close(node_fd);
 				}
 				else {
+					// if we have received a message from the node
 				    // 2. Deserialize the packet
 					mip_ping_sdu ping_sdu;
 					deserialize_mip_ping_sdu(&ping_sdu, node_buffer);
@@ -505,6 +507,7 @@ static void server(const char* socket_upper)
 				    	// Send broadcast and cache the packet, send it later when we receive a ARP response
 					    send_broadcast_for_mip(ping_pdu.header.dest_address);
 				    	// this will be sent when we later receive a response
+				    	// must wait to free memory until we have sent the packet
 				    	packet_cache.awaiting_arp_response[0] = ping_pdu;
 				    	packet_cache.is_waiting_packet = 1;
 				    } else {
@@ -513,6 +516,8 @@ static void server(const char* socket_upper)
 							printf("Sending ping packet:\n");
 						}
 				    	send_packet_on_raw_socket(&ping_pdu, dest->mac_address, &dest->ll_addr);
+				    	// we have sent the packet and can free the allocated memory
+				    	free(((mip_ping_sdu*)ping_pdu.sdu)->message);
 					}
 				}
 			}

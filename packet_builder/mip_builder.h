@@ -7,8 +7,9 @@
 #define ARP_SDU_TYPE 0x01
 #define ARP_REQUEST_TYPE 0x0
 #define ARP_RESPONSE_TYPE 0x1
-// constrained by length field in header: 2 ^ 9 - 1 = 511
-#define MIP_SDU_MAX_LENGTH 511
+// length field is 2 ^ 9, so max value is 511
+// length field gives number of 32 bit words, so max number of bytes is 511 * 4
+#define MIP_SDU_MAX_LENGTH 511 * 4
 // due to packing (?)
 
 /**
@@ -78,10 +79,22 @@ void deserialize_mip_ping_sdu(mip_ping_sdu* target, const uint8_t* buffer);
 void serialize_mip_pdu(uint8_t* target, const mip_pdu* pdu);
 
 /**
+ * @brief Free memory allocated by deserialize_mip_pdu
+ *
+ * Frees both the memory allocated for the sdu field of the mip_pdu struct and the message field of the mip_ping_sdu struct.
+ *
+ * @param pdu The mip_pdu struct to free
+ */
+void free_mip_pdu(mip_pdu* pdu);
+
+/**
 * Deserialize a mip_pdu struct from a byte array
 *
 * @param target The mip_pdu struct to deserialize to
-*               The message field will be allocated by the function and must be freed by the caller.
+*
+* This function allocates memory for the sdu field of the target struct. Which must be freed by the caller.
+* If the serial_pdu is a ping sdu, this function will invoke deserialize_mip_ping_sdu. This function
+* will allocate memory for the message field of the mip_ping_sdu struct. Which must be freed by the caller.
 *
 * @param serial_pdu The byte array to deserialize from. as formatted by serialize_mip_pdu.
 */
