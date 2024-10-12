@@ -29,6 +29,7 @@
 
 #include "mip_daemon.h"
 
+#include <fcntl.h>
 #include <ifaddrs.h>
 #include <net/if.h>
 #include <net/if.h>
@@ -294,7 +295,8 @@ void send_waiting_ping_if_possible() {
 void server(char* socket_upper)
 {
 	struct epoll_event ev, events[MAX_EVENTS];
-	int	   accept_sd, epollfd, rc;
+	int	   accept_sd = -1;
+	int epollfd, rc;
 
 
 	// Set up signal handler for SIGINT
@@ -450,17 +452,23 @@ void server(char* socket_upper)
 						.mip_address = received_eth_pdu.mip_pdu.header.source_address,
 						.message = ((mip_ping_sdu*) received_eth_pdu.mip_pdu.sdu)->message,
 					};
-					if (debug) {
-						printf("Forwarding received ping SDU to node:\n");
-						print_mip_ping_sdu(&ping_sdu, 4);
-						print_arp_cache(&cache, 0);
-					}
 
 					serialize_mip_ping_sdu(node_buffer, &ping_sdu);
-					size_t written_bytes = write(unix_sd, node_buffer, sizeof(uint8_t) + strlen(ping_sdu.message) + 1);
-					if (written_bytes == -1) {
-						perror("write");
-						exit(EXIT_FAILURE);
+					// check if unix_sd is a valid file descriptor
+					if(fcntl(unix_sd, F_GETFD) != -1) {
+						if (debug) {
+							printf("Unix file descriptor is valid, forwarding received ping SDU to node:\n");
+							print_mip_ping_sdu(&ping_sdu, 4);
+							print_arp_cache(&cache, 0);
+						}
+						size_t written_bytes = write(unix_sd, node_buffer, sizeof(uint8_t) + strlen(ping_sdu.message) + 1);
+						if (written_bytes == -1) {
+							perror("write");
+							exit(EXIT_FAILURE);
+						}
+					}
+					else if (debug) {
+						printf("Unix file descriptor is invalid, cannot forward received ping SDU\n");
 					}
 				}
 			} else {
