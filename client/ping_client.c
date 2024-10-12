@@ -1,17 +1,10 @@
-//
-// Created by ikhovind on 22.09.24.
-//
-
 #include <stdint.h>
 #include <stdlib.h>	/* free */
 #include <stdio.h>	/* printf */
 #include <unistd.h>	/* fgets */
 #include <string.h>	/* memset */
 #include <sys/socket.h>	/* socket */
-#include <fcntl.h>
 #include <sys/epoll.h>		/* epoll */
-#include <linux/if_packet.h>	/* AF_PACKET */
-#include <net/ethernet.h>	/* ETH_* */
 #include <arpa/inet.h>	/* htons */
 #include <errno.h>
 #include <bits/getopt_core.h>
@@ -19,14 +12,14 @@
 #include <sys/un.h>	/* definitions for UNIX domain sockets */
 #include <sys/time.h>
 
-#include "../network_interface/network_util.h"
+#include "../packet_builder/mip_builder.h"
 
-
-#define MAX_EVENTS 10
-#define DST_MAC_ADDR {0x00, 0x00, 0x00, 0x00, 0x00, 0x02}
 uint8_t mip_sdu_buf[MIP_SDU_MAX_LENGTH];
 
 
+/**
+ * Program entry point, sends a message to the server and waits for a response according to user
+ */
 int main(int argc, char** argv)
 {
 	struct sockaddr_un addr;

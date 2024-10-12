@@ -1,9 +1,3 @@
-//
-// Created by ikhovind on 24.09.24.
-//
-
-// basic unix socket implementation
-
 #define _DEFAULT_SOURCE
 #include <stdio.h>	/* standard input/output library functions */
 #include <stdlib.h>	/* standard library definitions (macros) */
@@ -21,8 +15,6 @@
 #include <bits/sigaction.h>
 
 #include <netinet/in.h>
-
-#include "mip_daemon.h"
 
 #include <fcntl.h>
 #include <ifaddrs.h>
@@ -97,7 +89,7 @@ static int add_to_epoll_table(int efd, struct epoll_event *ev, int fd);
  * @param mac_dest The MAC address of the destination
  * @param addr The sockaddr_ll struct of the interface to send the packet on
  */
-static void send_packet_on_raw_socket(mip_pdu* packet, uint8_t* mac_dest, const struct sockaddr_ll* addr);
+static void send_packet_on_raw_socket(const mip_pdu* packet, const uint8_t* mac_dest, const struct sockaddr_ll* addr);
 
 /**
  * @brief Broadcast MIP-ARP request on all available interfaces, looking for a given MIP address
@@ -208,7 +200,7 @@ static int prepare_unix_socket(const char* socket_upper)
 	return sd;
 }
 
-static void send_packet_on_raw_socket(mip_pdu* packet, uint8_t* mac_dest, const struct sockaddr_ll* addr) {
+static void send_packet_on_raw_socket(const mip_pdu* packet, const uint8_t* mac_dest, const struct sockaddr_ll* addr) {
 	const size_t mip_pdu_size = packet->header.sdu_len + sizeof(mip_header);
 
 	// source MAC address

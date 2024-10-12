@@ -1,7 +1,3 @@
-//
-// Created by ikhovind on 22.09.24.
-//
-
 #define _DEFAULT_SOURCE
 #include "network_util.h"
 #include <stdio.h>
@@ -15,7 +11,7 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 
-void get_interface_mac_address(unsigned char local_mac[6], int sll_ifindex, int raw_sd) {
+void get_interface_mac_address(unsigned char local_mac[6], const int sll_ifindex, const int raw_sd) {
 	// Convert interface index to name
 	char if_name[IFNAMSIZ];
 	if (if_indextoname(sll_ifindex, if_name) == NULL) {
@@ -36,3 +32,4 @@ void get_interface_mac_address(unsigned char local_mac[6], int sll_ifindex, int 
 	}
 	memcpy(local_mac, ifr.ifr_hwaddr.sa_data, 6);
 }
+

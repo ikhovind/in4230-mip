@@ -1,7 +1,5 @@
-//
-// Created by ikhovind on 22.09.24.
-//
 
+#include <stdint.h>
 #include <stdio.h>        /* printf */
 #include <stdlib.h>       /* free */
 #include <unistd.h>       /* fgets */
@@ -9,17 +7,21 @@
 #include <bits/getopt_core.h>
 #include <sys/socket.h>   /* socket */
 
+#include "../packet_builder/mip_builder.h"
+
 #include "../network_interface/network_util.h"
 #define MAX_EVENTS 10
 #define BUF_SIZE 1450
 static uint8_t dst_addr[6];
-
-
 #include <sys/un.h>
 
-#define BUFFER_SIZE 1024
+#include "../packet_builder/mip_builder.h"
+
 #define sun_path_size 108
 
+/**
+ * Program entry point, responds to  messages received from the server
+ */
 int main(int argc, char** argv) {
 
 	// include null terminated character and the abstract namespace character
@@ -85,9 +87,4 @@ int main(int argc, char** argv) {
 			perror("read");
 		}
 	}
-
-	// Close the connection
-	close(client_fd);
-
-	return 0;
 }

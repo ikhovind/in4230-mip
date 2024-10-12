@@ -16,7 +16,11 @@ ArpCacheIndex* get_mac_address(ArpCache* cache, uint8_t mip_addr) {
 
 bool insert_cache_index(ArpCache* cache, uint8_t mip_addr, uint8_t *mac_address, struct sockaddr_ll ll_addr) {
 
-    // should double here but oh well
+    if (get_mac_address(cache, mip_addr) != NULL) {
+        // MIP address already in cache
+        return false;
+    }
+    // Increase size of cache_array by 1, would be more efficient to double, but this is simpler
     ArpCacheIndex* new_cache_array = realloc(cache->cache_array, (cache->map_length + 1) * sizeof(ArpCacheIndex));
 
     if (!new_cache_array) {

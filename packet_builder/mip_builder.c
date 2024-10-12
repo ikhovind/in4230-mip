@@ -1,7 +1,3 @@
-//
-// Created by ikhovind on 24.09.24.
-//
-
 #include "mip_builder.h"
 
 #include <stdbool.h>
@@ -9,8 +5,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-void serialize_mip_ping_sdu(uint8_t* target, mip_ping_sdu* sdu) {
-    // Allocate buffer for serialized data
+void serialize_mip_ping_sdu(uint8_t* target, const mip_ping_sdu* sdu) {
     // Copy mip_address to buffer
     target[0] = sdu->mip_address;
 
@@ -18,8 +13,7 @@ void serialize_mip_ping_sdu(uint8_t* target, mip_ping_sdu* sdu) {
     strcpy((char*) target + 1, sdu->message);
 }
 
-// function to deserialize mip_ping_sdu
-void deserialize_mip_ping_sdu(mip_ping_sdu* target, uint8_t* buffer) {
+void deserialize_mip_ping_sdu(mip_ping_sdu* target, const uint8_t* buffer) {
     // Copy mip_address from buffer
     target->mip_address = buffer[0];
 
@@ -28,7 +22,7 @@ void deserialize_mip_ping_sdu(mip_ping_sdu* target, uint8_t* buffer) {
     strcpy(target->message, (char*)(buffer + 1));
 }
 
-void serialize_mip_pdu(uint8_t* target, mip_pdu* pdu) {
+void serialize_mip_pdu(uint8_t* target, const mip_pdu* pdu) {
     if (pdu->header.sdu_type == PING_SDU_TYPE) {
         mip_ping_sdu* ping_sdu = (mip_ping_sdu*)pdu->sdu;
         // copy header
@@ -49,28 +43,7 @@ void serialize_mip_pdu(uint8_t* target, mip_pdu* pdu) {
     exit(EXIT_FAILURE);
 }
 
-bool is_well_formed_mip_sdu(void* mip_sdu, uint8_t type) {
-    if (type == PING_SDU_TYPE) {
-        mip_ping_sdu* ping_sdu = (mip_ping_sdu*) mip_sdu;
-        if (ping_sdu->mip_address == 0) {
-            return false;
-        }
-        if (strlen(ping_sdu->message) > MIP_SDU_MAX_LENGTH) {
-            return false;
-        }
-        return true;
-    }
-    if (type == ARP_SDU_TYPE) {
-        mip_arp_sdu* arp_sdu = (mip_arp_sdu*) mip_sdu;
-        if (arp_sdu->type != ARP_REQUEST_TYPE && arp_sdu->type != ARP_RESPONSE_TYPE) {
-            return false;
-        }
-        return true;
-    }
-    return false;
-}
-
-void deserialize_mip_pdu(mip_pdu* target, uint8_t* serial_pdu) {
+void deserialize_mip_pdu(mip_pdu* target, const uint8_t* serial_pdu) {
     target->header = *(mip_header*)(serial_pdu);
     target->sdu = malloc(target->header.sdu_len);
     if (target->header.sdu_type == PING_SDU_TYPE) {
@@ -78,19 +51,16 @@ void deserialize_mip_pdu(mip_pdu* target, uint8_t* serial_pdu) {
     } if (target->header.sdu_type == ARP_SDU_TYPE) {
         target->sdu = (mip_arp_sdu*)(serial_pdu + sizeof(mip_header));
     }
-    if (!is_well_formed_mip_sdu(target->sdu, ARP_SDU_TYPE)) {
-        target = NULL;
-    }
 }
 
 // Function to print mip_ping_sdu
-void print_mip_ping_sdu(mip_ping_sdu* sdu, int indent) {
+void print_mip_ping_sdu(const mip_ping_sdu* sdu, int indent) {
     printf("%*sMIP Address: 0x%x\n", indent, "", sdu->mip_address);
     printf("%*sMessage: %s\n", indent, "", sdu->message);
 }
 
 // Function to print mip_arp_sdu
-void print_mip_arp_sdu(mip_arp_sdu* sdu, int indent) {
+void print_mip_arp_sdu(const mip_arp_sdu* sdu, int indent) {
     if (sdu->type == ARP_REQUEST_TYPE) {
         printf("%*sType: %s\n", indent, "", "ARP_REQUEST_TYPE");
     } else if (sdu->type == ARP_RESPONSE_TYPE) {
@@ -102,7 +72,7 @@ void print_mip_arp_sdu(mip_arp_sdu* sdu, int indent) {
 }
 
 // Function to print mip_header
-void print_mip_header(mip_header* header, int indent) {
+void print_mip_header(const mip_header* header, int indent) {
     printf("%*sDest Address: 0x%x\n", indent, "", header->dest_address);
     printf("%*sSource Address: 0x%x\n", indent, "", header->source_address);
     printf("%*sTTL: %u\n", indent, "", header->ttl);
@@ -117,7 +87,7 @@ void print_mip_header(mip_header* header, int indent) {
 }
 
 // Function to print mip_pdu
-void print_mip_pdu(mip_pdu* pdu, int indent) {
+void print_mip_pdu(const mip_pdu* pdu, int indent) {
     print_mip_header(&pdu->header, indent);
     printf("%*sSDU:\n", indent, "");
     switch (pdu->header.sdu_type) {
@@ -133,24 +103,26 @@ void print_mip_pdu(mip_pdu* pdu, int indent) {
     }
 }
 
-void build_mip_pdu(mip_pdu* target, void* sdu, uint8_t source_address, uint8_t dest_address, uint8_t ttl, uint8_t type) {
-    if (type == PING_SDU_TYPE) {
+void build_mip_pdu(mip_pdu* target, const void* sdu, uint8_t source_address, uint8_t dest_address, uint8_t ttl, uint8_t sdu_type) {
+    if (sdu_type == PING_SDU_TYPE) {
         mip_ping_sdu* ping_sdu = (mip_ping_sdu*) sdu;
         target->header.dest_address = dest_address;
         target->header.source_address = source_address;
         target->header.ttl = ttl;
         target->header.sdu_type = PING_SDU_TYPE;
 
-        size_t sdu_len = sizeof(ping_sdu->mip_address) + strlen(ping_sdu->message) + 1;
-        target->header.sdu_len = sdu_len;
+        // + 1 because we include null-terminator in sdu_len
+        target->header.sdu_len = sizeof(ping_sdu->mip_address) + strlen(ping_sdu->message) + 1;
         target->sdu = ping_sdu;
     }
-    else if (type == ARP_SDU_TYPE) {
+    else if (sdu_type == ARP_SDU_TYPE) {
         mip_arp_sdu* arp_sdu = (mip_arp_sdu*) sdu;
 
         if (arp_sdu->type == ARP_REQUEST_TYPE) {
+            // broadcast mip address
             target->header.dest_address = 0xFF;
         } else {
+            // Packet is arp response
             target->header.dest_address = dest_address;
         }
         target->header.source_address = source_address;
@@ -161,9 +133,3 @@ void build_mip_pdu(mip_pdu* target, void* sdu, uint8_t source_address, uint8_t d
         target->sdu = arp_sdu;
     }
 }
-
-//
-// Created by ikhovind on 24.09.24.
-//
-// Created by ikhovind on 24.09.24.
-//
