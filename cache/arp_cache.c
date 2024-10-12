@@ -5,7 +5,7 @@
 #include "../packet_builder/eth_builder.h"
 
 
-arp_cache_index* get_mac_address(arp_cache* cache, uint8_t mip_addr) {
+ArpCacheIndex* get_mac_address(ArpCache* cache, uint8_t mip_addr) {
     for (uint8_t i = 0; i < cache->map_length; ++i) {
         if (cache->cache_array[i].mip_addr == mip_addr) {
             return &cache->cache_array[i];
@@ -14,10 +14,10 @@ arp_cache_index* get_mac_address(arp_cache* cache, uint8_t mip_addr) {
     return NULL;
 }
 
-bool insert_cache_index(arp_cache* cache, uint8_t mip_addr, uint8_t *mac_address, struct sockaddr_ll ll_addr) {
+bool insert_cache_index(ArpCache* cache, uint8_t mip_addr, uint8_t *mac_address, struct sockaddr_ll ll_addr) {
 
     // should double here but oh well
-    arp_cache_index* new_cache_array = realloc(cache->cache_array, (cache->map_length + 1) * sizeof(arp_cache_index));
+    ArpCacheIndex* new_cache_array = realloc(cache->cache_array, (cache->map_length + 1) * sizeof(ArpCacheIndex));
 
     if (!new_cache_array) {
         // Handle memory allocation failure
@@ -25,7 +25,7 @@ bool insert_cache_index(arp_cache* cache, uint8_t mip_addr, uint8_t *mac_address
         return false;
     }
 
-    new_cache_array[cache->map_length] = (arp_cache_index) {
+    new_cache_array[cache->map_length] = (ArpCacheIndex) {
         .mip_addr = mip_addr,
         .ll_addr = ll_addr
     };
@@ -47,16 +47,16 @@ void print_sockaddr_ll(struct sockaddr_ll ll_addr, int indent) {
     print_mac_address("Address", ll_addr.sll_addr, indent + 4);
 }
 
-// Function to print arp_cache_index
-void print_arp_cache_index(arp_cache_index index, int indent) {
+// Function to print ArpCacheIndex
+void print_arp_cache_index(ArpCacheIndex index, int indent) {
     printf("%*sMIP Address: 0x%02x\n", indent, "", index.mip_addr);
     print_mac_address("MAC Address", index.mac_address, indent);
     printf("%*sLink-Layer Address:\n", indent, "");
     print_sockaddr_ll(index.ll_addr, indent + 4);
 }
 
-// Function to print arp_cache
-void print_arp_cache(arp_cache* cache, int indent) {
+// Function to print ArpCache
+void print_arp_cache(ArpCache* cache, int indent) {
     printf("%*sCurrent state of arp cache is:\n", indent, "");
     printf("%*sARP Cache Length: %u\n", indent + 4, "", cache->map_length);
     for (uint8_t i = 0; i < cache->map_length; ++i) {

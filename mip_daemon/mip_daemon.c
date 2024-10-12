@@ -17,41 +17,125 @@
 #include <sys/un.h>	/* definitions for UNIX domain sockets */
 #include <stdint.h>
 #include <linux/if_packet.h>	/* AF_PACKET */
-#include <net/ethernet.h>	/* ETH_* */
-#include <arpa/inet.h>	/* htons */
 #include <signal.h>
 #include <bits/sigaction.h>
 
 #include <netinet/in.h>
-#include <sys/ioctl.h>
-#include <linux/if_ether.h>   // for ETH_FRAME_LEN
-
 
 #include "mip_daemon.h"
 
 #include <fcntl.h>
 #include <ifaddrs.h>
-#include <net/if.h>
-#include <net/if.h>
 
 #include "../packet_builder/eth_builder.h"
 #include "../cache/arp_cache.h"
 #include "../network_interface/network_util.h"
+#include "../packet_builder/mip_builder.h"
 
+
+/**
+ * @brief Struct to hold a packet that is waiting for an ARP response
+ *
+ * If the destination MIP address is not in the ARP cache, the packet will be stored here
+ * is_waiting_packet flag indicates if there is a packet waiting for an ARP response
+ *
+ * Waiting packet will be overwritten if a new packet is sent while waiting
+ */
+typedef struct {
+    mip_pdu awaiting_arp_response[1];
+    bool is_waiting_packet;
+} PacketCache;
+
+/* MACROs */
+#define MAX_CONNS 5   /* max. length of the pending connections queue */
+#define MAX_EVENTS 10 /* max. number of concurrent events to check */
+#define BROADCAST_MAC "\xff\xff\xff\xff\xff\xff"
+
+// stores the MIP address of this daemon, specified by the user
 static uint8_t mip_address;
-static arp_cache cache;
-static arp_context awaiting_arp;
+// Caches values after ARP requests
+static ArpCache arp_cache;
+// Caches packets that are waiting for an ARP response
+static PacketCache packet_cache;
 // for communicating with nodes over unix socket
 uint8_t node_buffer[MIP_SDU_MAX_LENGTH];
-// for communicating with other mips over raw socket
+// for communicating with other daemons over raw socket
 uint8_t mipd_buffer[ETH_PDU_MAX_SIZE];
 
 int unix_sd;
 int raw_sd;
 bool debug = false;
 
-// Clean up function to close the socket
-void cleanup(int signum) {
+/**
+ * @brief Function to hand to sa_action to clean up sockets on exit
+ *
+ * @param signum Signal number
+ */
+static void cleanup(int signum);
+
+/**
+ * @brief Function to prepare and listen on unix socket
+ *
+ * @param socket_upper Null-terminated name of the socket, \0 will be added to the start of the name when creating the socket
+ *					   Max length is therefore 107 characters
+ * @return int The file descriptor of the socket
+ */
+static int prepare_unix_socket(const char* socket_upper);
+/**
+ * @brief Function to add a file descriptor to the epoll table
+ *
+ * @param efd The epoll file descriptor
+ * @param ev The epoll event struct
+ * @param fd The file descriptor to add
+ * @return int 0 on success, -1 on failure
+ */
+static int add_to_epoll_table(int efd, struct epoll_event *ev, int fd);
+/**
+ * @brief Function to send a packet on the raw socket, using the raw_sd global variable
+ *
+ * @param packet The packet to send
+ * @param mac_dest The MAC address of the destination
+ * @param addr The sockaddr_ll struct of the interface to send the packet on
+ */
+static void send_packet_on_raw_socket(mip_pdu* packet, uint8_t* mac_dest, const struct sockaddr_ll* addr);
+
+/**
+ * @brief Broadcast MIP-ARP request on all available interfaces, looking for a given MIP address
+ *
+ * @param mip_dest_address The MIP address to send the broadcast for
+ */
+static void send_broadcast_for_mip(uint8_t mip_dest_address);
+
+/**
+ * @brief Try to send any packet currently in the packet_cache
+ *
+ * Should be invoked every time the ARP cache is updated
+ *
+ * Checks if the destination MIP address is in the arp_cache, if so, sends the packet and resets the waiting flag
+ *
+ * If the destination is not in the arp_cache, does nothing
+ * If the is_waiting_packet flag is not set, does nothing
+ */
+static void send_waiting_ping_if_possible();
+/**
+ * @brief Main event-loop server function
+ *
+ * @param socket_upper The name of the socket to communicate with any node, max length is 107 characters
+ *                     When creating the socket, a \0 will be added to the start of the name to make it an abstract namespace socket
+ */
+static void server(const char* socket_upper);
+
+/**
+ * @brief Entry point for the program parses arguments and starts the server
+ *
+ * @param argc Number of arguments
+ * @param argv Array of arguments
+ * @return int 0 on success, -1 on failure
+ */
+int main(int argc, char **argv);
+
+
+static void cleanup(const int signum) {
 	if (unix_sd != -1) {
 		close (unix_sd);
 		printf("Unix socket closed due to signal %d\n", signum);
@@ -63,29 +147,7 @@ void cleanup(int signum) {
 	exit(signum);
 }
 
-int raw_socket()
-{
-	int	raw_sock;
-
-	raw_sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_MIP));
-	if (raw_sock == -1) {
-		perror("socket");
-		return -1;
-	}
-
-	return raw_sock;
-}
-
-/**
- * Prepare (create, bind, listen) the server listening socket
- *
- * Returns the file descriptor of the server socket.
- *
- * In C, you declare a function as static when you want to limit its scope to
- * the current source file. When a function is declared as static, it can only
- * be called from within the same source file where it is defined.
- */
-static int prepare_server_sock(char* socket_upper)
+static int prepare_unix_socket(const char* socket_upper)
 {
 	int sd = -1, rc = -1;
 	struct sockaddr_un addr;
@@ -117,15 +179,12 @@ static int prepare_server_sock(char* socket_upper)
 	/* Why `-1`??? Check character arrays in C!
 	 * '\0', 's' 'e' 'r' 'v' 'e' 'r' '.' 's' 'o' 'c' 'k' 'e' 't' '\0'
 	 * sizeof() counts the final null-terminated character ('\0') as well.
-	 *
-	 *
 	 */
 	strncpy(addr.sun_path, sock_path_buf, sizeof(addr.sun_path) - 1);
 
 	/* No need to unlink as we are using abstract namespace sockets
 	 * Check https://gavv.github.io/articles/unix-socket-reuse
 	 */
-
 	rc = bind(sd, (const struct sockaddr *)&addr, sizeof(addr));
 	if (rc == -1) {
 		perror("bind");
@@ -149,9 +208,10 @@ static int prepare_server_sock(char* socket_upper)
 	return sd;
 }
 
-void send_packet_on_raw_socket(mip_pdu* packet, uint8_t* mac_dest, const struct sockaddr_ll* addr) {
+static void send_packet_on_raw_socket(mip_pdu* packet, uint8_t* mac_dest, const struct sockaddr_ll* addr) {
 	const size_t mip_pdu_size = packet->header.sdu_len + sizeof(mip_header);
 
+	// source MAC address
 	unsigned char local_mac[6];
 	get_interface_mac_address(local_mac, addr->sll_ifindex, raw_sd);
 
@@ -166,7 +226,7 @@ void send_packet_on_raw_socket(mip_pdu* packet, uint8_t* mac_dest, const struct 
 	if (debug) {
 		printf("Sending eth packet:\n");
 		print_eth_pdu(&ping_eth_pdu, 4);
-		print_arp_cache(&cache, 4);
+		print_arp_cache(&arp_cache, 4);
 	}
 
 	ssize_t sent_bytes = sendto(raw_sd, mipd_buffer, ETH_HEADER_LEN + mip_pdu_size, 0, (const struct sockaddr *)addr, sizeof(*addr));
@@ -176,7 +236,7 @@ void send_packet_on_raw_socket(mip_pdu* packet, uint8_t* mac_dest, const struct 
 	};
 }
 
-static int add_to_epoll_table(int efd, struct epoll_event *ev, int fd)
+static int add_to_epoll_table(const int efd, struct epoll_event *ev, const int fd)
 {
 	int rc = 0;
 
@@ -193,7 +253,7 @@ static int add_to_epoll_table(int efd, struct epoll_event *ev, int fd)
 	return rc;
 }
 
-void send_broadcast_for_mip(uint8_t mip_dest_address) {
+static void send_broadcast_for_mip(uint8_t mip_dest_address) {
 	// first send broadcast
 	mip_arp_sdu arp_sdu;
 	arp_sdu.type = ARP_REQUEST_TYPE;
@@ -208,6 +268,7 @@ void send_broadcast_for_mip(uint8_t mip_dest_address) {
 		exit(-1);
     }
 
+	// send broadcast on all interfaces
     for (ifp = ifaces; ifp != NULL; ifp = ifp->ifa_next) {
         if (ifp->ifa_addr != NULL && ifp->ifa_addr->sa_family == AF_PACKET) {
         	// Avoid loopback so we don't send to ourselves
@@ -219,30 +280,28 @@ void send_broadcast_for_mip(uint8_t mip_dest_address) {
 	freeifaddrs(ifaces);
 }
 
-
-// Check if the packet in arp_context can be sent with the data currently in our cache
-void send_waiting_ping_if_possible() {
-	if (!awaiting_arp.is_waiting_packet) {
+static void send_waiting_ping_if_possible() {
+	if (!packet_cache.is_waiting_packet) {
 		return;
 	}
-	// get the first packet in the context
-	mip_pdu* packet = &awaiting_arp.awaiting_arp_response[0];
+	// get the first packet in the cache
+	mip_pdu* packet = &packet_cache.awaiting_arp_response[0];
 	// get the mac address of the destination
-	arp_cache_index* dest = get_mac_address(&cache, packet->header.dest_address);
+	ArpCacheIndex* dest = get_mac_address(&arp_cache, packet->header.dest_address);
 	// if the destination is in the cache, send the packet
 	if (dest != NULL) {
 		// 6. If the client is found, we should send the ping
 		if (debug) {
-			printf("Sending ping packet from context:\n");
+			printf("Sending ping packet which was cached:\n");
 		}
 		send_packet_on_raw_socket(packet, dest->mac_address, &dest->ll_addr);
 
-		awaiting_arp.is_waiting_packet = 0;
+		packet_cache.is_waiting_packet = 0;
 	}
 }
 
 
-void server(char* socket_upper)
+static void server(const char* socket_upper)
 {
 	struct epoll_event ev, events[MAX_EVENTS];
 	int	   accept_sd = -1;
@@ -262,8 +321,13 @@ void server(char* socket_upper)
 	printf("\n*** IN4230 MIPD server! ***\n\n");
 
 	/* Call the method to create, bind and listen to the server socket */
-	unix_sd = prepare_server_sock(socket_upper);
-	raw_sd = raw_socket();
+	unix_sd = prepare_unix_socket(socket_upper);
+
+	raw_sd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_MIP));
+	if (raw_sd == -1) {
+		perror("socket");
+		exit(EXIT_FAILURE);
+	}
 
 	/* Create the main epoll file descriptor */
 	epollfd = epoll_create1(0);
@@ -325,14 +389,19 @@ void server(char* socket_upper)
 				 *
 				 */
 				int fd = events[i].data.fd;
-				int unix_sd = accept_sd;
-				int rc;
+				const int unix_sd = accept_sd;
 				struct sockaddr_ll recv_addr;
 				socklen_t addr_len = sizeof(recv_addr);
 				//* We should:
 				//*  1. Read the data
-				rc = recvfrom(fd, mipd_buffer, sizeof(mipd_buffer), 0, (struct sockaddr *)&recv_addr, &addr_len);
-				if (rc <= 0) {
+				const ssize_t received_bytes = recvfrom(
+					fd,
+					mipd_buffer,
+					sizeof(mipd_buffer),
+					0,
+					(struct sockaddr *) &recv_addr,
+					&addr_len);
+				if (received_bytes <= 0) {
 					close(fd);
 					exit(EXIT_FAILURE);
 				}
@@ -343,19 +412,19 @@ void server(char* socket_upper)
 				if (debug) {
 					printf("Received eth pdu on raw socket:\n");
 					print_eth_pdu(&received_eth_pdu, 4);
-					print_arp_cache(&cache, 4);
+					print_arp_cache(&arp_cache, 4);
 				}
 
 				//*  3. Check if it is a broadcast or a ping
 				if (received_eth_pdu.mip_pdu.header.sdu_type == ARP_SDU_TYPE) {
 					if (((mip_arp_sdu*)received_eth_pdu.mip_pdu.sdu)->type == ARP_RESPONSE_TYPE) {
-						insert_cache_index(&cache, received_eth_pdu.mip_pdu.header.source_address, received_eth_pdu.header.source_address, recv_addr);
+						insert_cache_index(&arp_cache, received_eth_pdu.mip_pdu.header.source_address, received_eth_pdu.header.source_address, recv_addr);
 						send_waiting_ping_if_possible();
 					}
 					else if (((mip_arp_sdu*)received_eth_pdu.mip_pdu.sdu)->type == ARP_REQUEST_TYPE) {
 						// If broadcast then we first learn the MAC address of the sender
-						insert_cache_index(&cache, received_eth_pdu.mip_pdu.header.source_address, received_eth_pdu.header.source_address, recv_addr);
-						uint8_t desired_mip_adr = ((mip_arp_sdu*)received_eth_pdu.mip_pdu.sdu)->mip_address;
+						insert_cache_index(&arp_cache, received_eth_pdu.mip_pdu.header.source_address, received_eth_pdu.header.source_address, recv_addr);
+						const uint8_t desired_mip_adr = ((mip_arp_sdu*)received_eth_pdu.mip_pdu.sdu)->mip_address;
 
 						// Then we check if the sender is looking for us
 						if (desired_mip_adr == mip_address) {
@@ -368,7 +437,7 @@ void server(char* socket_upper)
 							mip_pdu mip_pdu;
 							build_mip_pdu(&mip_pdu, &arp_sdu_response, mip_address, received_eth_pdu.mip_pdu.header.source_address, 1, ARP_SDU_TYPE);
 
-							arp_cache_index* dest = get_mac_address(&cache, received_eth_pdu.mip_pdu.header.source_address);
+							ArpCacheIndex* dest = get_mac_address(&arp_cache, received_eth_pdu.mip_pdu.header.source_address);
 							send_packet_on_raw_socket(&mip_pdu, dest->mac_address, &dest->ll_addr);
 						}
 						else {
@@ -391,7 +460,7 @@ void server(char* socket_upper)
 						if (debug) {
 							printf("Unix file descriptor is valid, forwarding received ping SDU to node:\n");
 							print_mip_ping_sdu(&ping_sdu, 4);
-							print_arp_cache(&cache, 4);
+							print_arp_cache(&arp_cache, 4);
 						}
 						size_t written_bytes = write(unix_sd, node_buffer, sizeof(uint8_t) + strlen(ping_sdu.message) + 1);
 						if (written_bytes == -1) {
@@ -430,7 +499,7 @@ void server(char* socket_upper)
 					if (debug) {
 						printf("Received ping SDU from node:\n");
 						print_mip_ping_sdu(&ping_sdu, 4);
-						print_arp_cache(&cache, 4);
+						print_arp_cache(&arp_cache, 4);
 					}
 
 					// 3. Build the MIP PDU
@@ -438,14 +507,14 @@ void server(char* socket_upper)
 				    build_mip_pdu(&ping_pdu, &ping_sdu, mip_address, ping_sdu.mip_address, 1, PING_SDU_TYPE);
 
 					// 4. Check the cache for the destination MIP address
-					arp_cache_index *dest = get_mac_address(&cache, ping_pdu.header.dest_address);
+					ArpCacheIndex *dest = get_mac_address(&arp_cache, ping_pdu.header.dest_address);
 					// 5. If the client is not found, we should send broadcast
 				    if (dest == NULL) {
 				    	// Send broadcast and cache the packet, send it later when we receive a ARP response
 					    send_broadcast_for_mip(ping_pdu.header.dest_address);
 				    	// this will be sent when we later receive a response
-				    	awaiting_arp.awaiting_arp_response[0] = ping_pdu;
-				    	awaiting_arp.is_waiting_packet = 1;
+				    	packet_cache.awaiting_arp_response[0] = ping_pdu;
+				    	packet_cache.is_waiting_packet = 1;
 				    } else {
 						// If we have it in our cache
 						if (debug) {
@@ -459,7 +528,7 @@ void server(char* socket_upper)
 	}
 }
 
-int main(int argc, char **argv)
+int main(const int argc, char **argv)
 {
 	int opt; 
 
@@ -488,8 +557,8 @@ int main(int argc, char **argv)
 		++pos_arg_start;
 		printf("Running in debug mode\n");
 	}
-	char* socket_upper = argv[pos_arg_start];
-	mip_address = atoi(argv[pos_arg_start + 1]);
+	const char* socket_upper = argv[pos_arg_start];
+	mip_address = strtol(argv[pos_arg_start + 1], NULL, 10);
 
 	printf("%p\n", argv);
 

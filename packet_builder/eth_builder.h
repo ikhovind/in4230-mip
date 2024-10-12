@@ -36,6 +36,7 @@ void build_eth_pdu(eth_pdu* pdu, eth_header* header, mip_pdu* mip_pdu);
 
 void serialize_eth_pdu(uint8_t* target, eth_pdu* pdu);
 void deserialize_eth_pdu(eth_pdu* target, uint8_t* buffer);
+void print_mac_address(const char *label, uint8_t address[6], int indent);
 void print_eth_header(eth_header header, int indent);
 void print_eth_pdu(eth_pdu* pdu, int indent);
 

@@ -56,8 +56,9 @@ int main(int argc, char** argv)
 
 	uint8_t pos_arg_start = 1;
 	strncpy(sock_path_buf + 1, argv[pos_arg_start], strlen(argv[pos_arg_start]));
-	char* socket_lower = argv[pos_arg_start];
-	uint8_t dest_host = atoi(argv[pos_arg_start + 1]);
+
+	// parse dest host using strtol
+	const uint8_t dest_host = strtol(argv[pos_arg_start + 1], NULL, 10);
 	char* message = argv[pos_arg_start + 2];
 
 	mip_ping_sdu ping_sdu = {
