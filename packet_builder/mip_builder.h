@@ -1,6 +1,7 @@
 #ifndef MIP_BUILDER_H
 #define MIP_BUILDER_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #define PING_SDU_TYPE 0x02
@@ -40,7 +41,7 @@ typedef struct {
 typedef struct {
     mip_header header;
     void* sdu;
-} mip_pdu;
+} __attribute__((aligned(4))) mip_pdu;
 
 enum {
     MIP_HEADER_SIZE = sizeof(mip_header),
@@ -54,8 +55,10 @@ enum {
 *
 * @param target The byte array to serialize to (must be allocated by the caller to a size of: 1 + strlen(sdu->message) + 1)
 * @param sdu The mip_ping_sdu struct to serialize. sdu-> message must contain a null-terminated string.
+*
+* @return The number of bytes written to the target buffer including padding up to nearest 4 bytes.
 */
-void serialize_mip_ping_sdu(uint8_t* target, const mip_ping_sdu* sdu);
+size_t serialize_mip_ping_sdu(uint8_t* target, const mip_ping_sdu* sdu);
 
 /**
 * Deserialize a mip_ping_sdu struct from a byte array

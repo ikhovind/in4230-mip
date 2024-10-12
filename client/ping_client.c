@@ -82,18 +82,20 @@ int main(int argc, char** argv)
 		exit(EXIT_FAILURE);
 	}
 
+	/*
 	if (setsockopt(sd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == -1) {
 		perror("setsockopt");
 		close(sd);
 		exit(EXIT_FAILURE);
 	}
+	*/
 
-	serialize_mip_ping_sdu(mip_sdu_buf, &ping_sdu);
+	size_t padded_length = serialize_mip_ping_sdu(mip_sdu_buf, &ping_sdu);
 	printf("Writing to server\n");
 	// start counter to measrure RTT
 	struct timeval start;
 	gettimeofday(&start, NULL);
-	rc = write(sd, mip_sdu_buf, sizeof(uint8_t) + strlen(ping_sdu.message) + 1);
+	rc = write(sd, mip_sdu_buf, padded_length);
 
 	if (rc < 0) {
 		perror("write");
@@ -102,6 +104,20 @@ int main(int argc, char** argv)
 	}
 	// Receive message
 	ssize_t bytes_received = recv(sd, mip_sdu_buf, sizeof(mip_sdu_buf), 0);
+
+	// print time since start
+	struct timeval end;
+	gettimeofday(&end, NULL);
+	printf("Time since start: %ld ms\n", (end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) / 1000);
+	// check error from recv
+	if (bytes_received == 0) {
+		fprintf(stderr, "Connection closed\n");
+	}
+	if (bytes_received == -1) {
+		printf("errno: %d\n", errno);
+		perror("recv");
+
+	}
 
 	if (bytes_received == -1) {
 		if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -124,6 +140,6 @@ int main(int argc, char** argv)
 		}
 		free(rec_ping_sdu.message);
 	}
-
+	printf("exiting\n");
 	exit(0);
 }

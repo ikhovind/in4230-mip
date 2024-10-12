@@ -74,6 +74,7 @@ int main(int argc, char** argv) {
 		if (num_read > 0) {
 			mip_ping_sdu ping_sdu;
 			deserialize_mip_ping_sdu(&ping_sdu, sdu_buffer);
+			print_mip_ping_sdu(&ping_sdu, 4);
 			// check it starts with PING
 			if (strncmp("PING:", ping_sdu.message, 5) != 0) {
 				printf("Received message does not start with PING:, ignoring\n");
@@ -82,9 +83,9 @@ int main(int argc, char** argv) {
 			printf("Received: %s\n", ping_sdu.message);
 			// ping -> pong
 			ping_sdu.message[1] = 'O';
-			serialize_mip_ping_sdu(sdu_buffer, &ping_sdu);
+			size_t padded_length = serialize_mip_ping_sdu(sdu_buffer, &ping_sdu);
 			printf("msg: %s\n", ping_sdu.message);
-			write(client_fd, sdu_buffer, sizeof(uint8_t) + strlen(ping_sdu.message) + 1);
+			write(client_fd, sdu_buffer, padded_length);
 			free(ping_sdu.message);
 		} else if (num_read == -1) {
 			perror("read");

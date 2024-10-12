@@ -5,12 +5,15 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-void serialize_mip_ping_sdu(uint8_t* target, const mip_ping_sdu* sdu) {
+size_t serialize_mip_ping_sdu(uint8_t* target, const mip_ping_sdu* sdu) {
     // Copy mip_address to buffer
     target[0] = sdu->mip_address;
 
     // Copy message to buffer after mip_address
     strcpy((char*) target + 1, sdu->message);
+    size_t written_size = strlen(sdu->message) + 1 + 1;
+    // Pad up to nearest 4 bytes
+    return written_size + (4 - written_size % 4) % 4;
 }
 
 void deserialize_mip_ping_sdu(mip_ping_sdu* target, const uint8_t* buffer) {
