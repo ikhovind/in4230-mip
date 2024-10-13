@@ -11,7 +11,10 @@ size_t serialize_mip_ping_sdu(uint8_t* target, const mip_ping_sdu* sdu) {
 
     // Copy message to buffer after mip_address
     strcpy((char*) target + 1, sdu->message);
+    // include null-terminator and mip_address
     size_t written_size = strlen(sdu->message) + 1 + 1;
+    // set rest of buffer to 0
+    memset(target + written_size, 0, 4 - written_size % 4);
     // Pad up to nearest 4 bytes
     return written_size + (4 - written_size % 4) % 4;
 }
@@ -123,7 +126,8 @@ void build_mip_pdu(mip_pdu* target, const void* sdu, uint8_t source_address, uin
 
         // + 1 because we include null-terminator in sdu_len
         // / 4 because it counts 32 bit words
-        target->header.sdu_len = (sizeof(ping_sdu->mip_address) + strlen(ping_sdu->message) + 1) / 4;
+        // + 3 to round up to nearest 4 bytes
+        target->header.sdu_len = ((sizeof(ping_sdu->mip_address) + strlen(ping_sdu->message) + 1) + 3) / 4;
         target->sdu = ping_sdu;
     }
     else if (sdu_type == ARP_SDU_TYPE) {

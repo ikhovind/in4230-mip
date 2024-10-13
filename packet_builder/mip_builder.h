@@ -41,7 +41,7 @@ typedef struct {
 typedef struct {
     mip_header header;
     void* sdu;
-} __attribute__((aligned(4))) mip_pdu;
+} mip_pdu;
 
 enum {
     MIP_HEADER_SIZE = sizeof(mip_header),

@@ -25,20 +25,6 @@
 #include "../packet_builder/mip_builder.h"
 
 
-/**
- * @brief Struct to hold a packet that is waiting for an ARP response
- *
- * If the destination MIP address is not in the ARP cache, the packet will be stored here
- * is_waiting_packet flag indicates if there is a packet waiting for an ARP response
- *
- * Waiting packet will be overwritten if a new packet is sent while waiting
- */
-typedef struct {
-    mip_pdu awaiting_arp_response[256];
-    bool is_waiting_packet[256];
-	int fd_dest;
-} PacketCache;
-
 /* MACROs */
 #define MAX_CONNS 5   /* max. length of the pending connections queue */
 #define MAX_EVENTS 10 /* max. number of concurrent events to check */
@@ -48,8 +34,6 @@ typedef struct {
 static uint8_t mip_address;
 // Caches values after ARP requests
 static ArpCache arp_cache;
-// Caches packets that are waiting for an ARP response
-static PacketCache packet_cache;
 // for communicating with nodes over unix socket
 uint8_t node_buffer[MIP_SDU_MAX_LENGTH];
 // for communicating with other daemons over raw socket
@@ -99,17 +83,6 @@ static void send_packet_on_raw_socket(const mip_pdu* packet, const uint8_t* mac_
  */
 static void send_broadcast_for_mip(uint8_t mip_dest_address);
 
-/**
- * @brief Try to send any packet currently in the packet_cache
- *
- * Should be invoked every time the ARP cache is updated
- *
- * Checks if the destination MIP address is in the arp_cache, if so, sends the packet and resets the waiting flag
- *
- * If the destination is not in the arp_cache, does nothing
- * If the is_waiting_packet flag is not set, does nothing
- */
-static void send_waiting_ping_if_possible();
 /**
  * @brief Main event-loop server function
  *
@@ -221,6 +194,13 @@ static void send_packet_on_raw_socket(const mip_pdu* packet, const uint8_t* mac_
 		print_eth_pdu(&ping_eth_pdu, 4);
 		print_arp_cache(&arp_cache, 4);
 	}
+	// deserialize mipd_buffer
+	eth_pdu received_mip_pdu2;
+	deserialize_eth_pdu(&received_mip_pdu2, mipd_buffer);
+	if (debug) {
+		printf("Deserialized eth packet:\n");
+		print_eth_pdu(&received_mip_pdu2, 4);
+	}
 
 	ssize_t sent_bytes = sendto(raw_sd, mipd_buffer, ETH_HEADER_LEN + mip_pdu_size, 0, (const struct sockaddr *)addr, sizeof(*addr));
 	if (sent_bytes == -1) {
@@ -271,49 +251,6 @@ static void send_broadcast_for_mip(uint8_t mip_dest_address) {
         }
     }
 	freeifaddrs(ifaces);
-}
-
-static void send_waiting_ping_if_possible() {
-	// iterate packet cache
-	for (int i = 0; i < 256; ++i) {
-		if (packet_cache.is_waiting_packet[i]) {
-			// get the first packet in the cache
-			const mip_pdu* packet = &packet_cache.awaiting_arp_response[i];
-			// get the mac address of the destination
-			const ArpCacheIndex* dest = get_mac_address(&arp_cache, packet->header.dest_address);
-			// if the destination is in the cache, send the packet
-			if (dest != NULL) {
-				// 6. If the client is found, we should send the ping
-				if (debug) {
-					printf("Sending ping packet which was cached:\n");
-				}
-				send_packet_on_raw_socket(packet, dest->mac_address, &dest->ll_addr);
-				printf("Freeing cached message\n");
-				printf("Freeing memory at address %p\n", ((mip_ping_sdu*)packet->sdu)->message);
-				//free(((mip_ping_sdu*)packet->sdu)->message);
-				packet_cache.is_waiting_packet[i] = 0;
-			}
-		}
-	}
-	/*
-	if (!packet_cache.is_waiting_packet) {
-		return;
-	}
-	// get the first packet in the cache
-	const mip_pdu* packet = &packet_cache.awaiting_arp_response[0];
-	// get the mac address of the destination
-	const ArpCacheIndex* dest = get_mac_address(&arp_cache, packet->header.dest_address);
-	// if the destination is in the cache, send the packet
-	if (dest != NULL) {
-		// 6. If the client is found, we should send the ping
-		if (debug) {
-			printf("Sending ping packet which was cached:\n");
-		}
-		send_packet_on_raw_socket(packet, dest->mac_address, &dest->ll_addr);
-		free(((mip_ping_sdu*)packet->sdu)->message);
-		packet_cache.is_waiting_packet = 0;
-	}
-	*/
 }
 
 
@@ -438,7 +375,6 @@ static void server(const char* socket_upper)
 				if (received_eth_pdu.mip_pdu.header.sdu_type == ARP_SDU_TYPE) {
 					if (((mip_arp_sdu*)received_eth_pdu.mip_pdu.sdu)->type == ARP_RESPONSE_TYPE) {
 						insert_cache_index(&arp_cache, received_eth_pdu.mip_pdu.header.source_address, received_eth_pdu.header.source_address, recv_addr);
-						send_waiting_ping_if_possible();
 					}
 					else if (((mip_arp_sdu*)received_eth_pdu.mip_pdu.sdu)->type == ARP_REQUEST_TYPE) {
 						// If broadcast then we first learn the MAC address of the sender
@@ -464,7 +400,7 @@ static void server(const char* socket_upper)
 						}
 					}
 				}
-				//*     b. If it is a ping, we should forward it to the correct client
+				//*     b. If it is a ping, we should forward it to the correct node
 				if (received_eth_pdu.mip_pdu.header.sdu_type == PING_SDU_TYPE) {
 
 					mip_ping_sdu ping_sdu = {
@@ -472,12 +408,15 @@ static void server(const char* socket_upper)
 						.mip_address = received_eth_pdu.mip_pdu.header.source_address,
 						.message = ((mip_ping_sdu*) received_eth_pdu.mip_pdu.sdu)->message,
 					};
+					printf("message length received on raw socket %ld\n", strlen(ping_sdu.message));
+					printf("sdu_len received on raw socket: %d\n", received_eth_pdu.mip_pdu.header.sdu_len);
+					printf("Number of received bytes: %ld\n", received_bytes);
 
 					size_t padded_length = serialize_mip_ping_sdu(node_buffer, &ping_sdu);
 					// check if unix_sd is a valid file descriptor
 					if(fcntl(unix_sd, F_GETFD) != -1) {
 						if (debug) {
-							printf("Unix file descriptor is valid, forwarding received ping SDU to node:\n");
+							printf("Unix file descriptor is valid, forwarding received ping SDU to server:\n");
 							print_mip_ping_sdu(&ping_sdu, 4);
 							print_arp_cache(&arp_cache, 4);
 						}
@@ -486,6 +425,32 @@ static void server(const char* socket_upper)
 							perror("write");
 							exit(EXIT_FAILURE);
 						}
+						// receive back from unix_sd
+						memset(node_buffer, 0, sizeof(node_buffer));
+						ssize_t bytes_received = read(unix_sd, node_buffer, sizeof(node_buffer));
+						if (bytes_received == -1) {
+							perror("read");
+							exit(EXIT_FAILURE);
+						}
+						// deserialize mip_ping_sdu
+						mip_ping_sdu received_ping_sdu;
+						deserialize_mip_ping_sdu(&received_ping_sdu, node_buffer);
+						if (debug) {
+							printf("Received ping SDU from server:\n");
+							print_mip_ping_sdu(&received_ping_sdu, 4);
+						}
+						// build the MIP PDU
+						mip_pdu ping_pdu;
+						build_mip_pdu(&ping_pdu, &received_ping_sdu, mip_address, received_ping_sdu.mip_address, 1, PING_SDU_TYPE);
+						// check the cache for the destination MIP address
+						ArpCacheIndex* dest = get_mac_address(&arp_cache, ping_pdu.header.dest_address);
+						// dest must be in the cache, since we are responding to a ping
+						if (dest == NULL) {
+							printf("Destination not in cache\n");
+							exit(EXIT_FAILURE);
+						}
+						// send the packet
+						send_packet_on_raw_socket(&ping_pdu, dest->mac_address, &dest->ll_addr);
 					}
 					else if (debug) {
 						printf("Unix file descriptor is invalid, cannot forward received ping SDU\n");
@@ -494,7 +459,7 @@ static void server(const char* socket_upper)
 				free_mip_pdu(&received_eth_pdu.mip_pdu);
 			}
 			else {
-				/* existing node is trying to send data (ping_client or ping_server) */
+				/* existing node is trying to send data (only ping_client will initiate contact so we know source) */
 				int node_fd = events[i].data.fd;
 
 				// ############### We should: ##############3
@@ -514,90 +479,103 @@ static void server(const char* socket_upper)
 					close(node_fd);
 				}
 				else {
-					// if we have received a message from the node
-				    // 2. Deserialize the packet
+					// if we have received a message from a ping_client
+					// 2. Deserialize the packet
 					mip_ping_sdu ping_sdu;
 					deserialize_mip_ping_sdu(&ping_sdu, node_buffer);
 					if (debug) {
-						printf("Received ping SDU from node: %d\n", node_fd);
+						printf("Received ping SDU from a ping_client: %d\n", node_fd);
 						print_mip_ping_sdu(&ping_sdu, 4);
 						print_arp_cache(&arp_cache, 4);
 					}
 
 					// 3. Build the MIP PDU
-				    mip_pdu ping_pdu;
-				    build_mip_pdu(&ping_pdu, &ping_sdu, mip_address, ping_sdu.mip_address, 1, PING_SDU_TYPE);
+					mip_pdu ping_pdu;
+					build_mip_pdu(&ping_pdu, &ping_sdu, mip_address, ping_sdu.mip_address, 1, PING_SDU_TYPE);
 
 					// 4. Check the cache for the destination MIP address
 					ArpCacheIndex *dest = get_mac_address(&arp_cache, ping_pdu.header.dest_address);
 					// 5. If the client is not found, we should send broadcast
-				    if (dest == NULL) {
-				    	// Send broadcast and cache the packet, send it later when we receive a ARP response
-					    send_broadcast_for_mip(ping_pdu.header.dest_address);
-				    	// this will be sent when we later receive a response
-				    	// must wait to free memory until we have sent the packet
-
-				    	// wait for the ARP response
-
-				    	struct sockaddr_ll recv_addr;
-						socklen_t addr_len = sizeof(recv_addr);
-				    	int received_bytes = recvfrom(raw_sd, mipd_buffer, sizeof(mipd_buffer), 0, (struct sockaddr *) &recv_addr, &addr_len);;
-				    	eth_pdu received_eth_pdu;
-				    	deserialize_eth_pdu(&received_eth_pdu, mipd_buffer);
-				    	if (received_eth_pdu.mip_pdu.header.sdu_type == ARP_SDU_TYPE) {
-				    		mip_arp_sdu* arp_response = (mip_arp_sdu*)received_eth_pdu.mip_pdu.sdu;
-				    		insert_cache_index(&arp_cache, received_eth_pdu.mip_pdu.header.source_address, received_eth_pdu.header.source_address, recv_addr);
-				    		if (arp_response->type == ARP_RESPONSE_TYPE) {
-				    			//send_waiting_ping_if_possible();
-				    			// print arp_response
-				    			printf("Received ARP response===================:\n");
-				    			print_mip_arp_sdu(arp_response, 4);
-				    		}
-				    	}
-				    	dest = get_mac_address(&arp_cache, ping_pdu.header.dest_address);
-				    	send_packet_on_raw_socket(&ping_pdu, dest->mac_address, &dest->ll_addr);
-
-				    	// receive the ping response
-				    	recvfrom(raw_sd, mipd_buffer, sizeof(mipd_buffer), 0, NULL, NULL);
-				    	eth_pdu received_eth_pdu2;
-				    	deserialize_eth_pdu(&received_eth_pdu2, mipd_buffer);
-				    	if (received_eth_pdu2.mip_pdu.header.sdu_type == PING_SDU_TYPE) {
-				    		mip_ping_sdu* ping_response = (mip_ping_sdu*)received_eth_pdu2.mip_pdu.sdu;
-				    		printf("=======Received ping response from %d: %s\n======", received_eth_pdu2.mip_pdu.header.source_address, ping_response->message);
-				    		// swap source and dest addresses so that if there is a response, it will be sent to the correct node
-				    		ping_response->mip_address = received_eth_pdu2.mip_pdu.header.source_address;
-				    		// send ping response to node
-				    		size_t padded_length = serialize_mip_ping_sdu(node_buffer, ping_response);
-				    		write(node_fd, node_buffer, padded_length);
-				    		free(ping_response->message);
-				    	}
-				    } else {
-						// If we have it in our cache
+					if (dest == NULL) {
 						if (debug) {
-							printf("Sending ping packet:\n");
+							printf("Destination not in cache, sending broadcast\n");
 						}
-				    	send_packet_on_raw_socket(&ping_pdu, dest->mac_address, &dest->ll_addr);
+						// Send broadcast and cache the packet, send it later when we receive a ARP response
+						send_broadcast_for_mip(ping_pdu.header.dest_address);
+						// wait for the ARP response
 
-				    	// we have sent the packet and can free the allocated memory
-				    	free(((mip_ping_sdu*)ping_pdu.sdu)->message);
+						struct sockaddr_ll recv_addr;
+						socklen_t addr_len = sizeof(recv_addr);
+						// Timeout since we don't know if we can reach the address
+						struct timeval tv;
+						tv.tv_sec = 0;
+						// 0.5 seconds
+						tv.tv_usec = 500000;
+						//setsockopt(raw_sd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
 
-				    	// Receive the ping response
+						int received_bytes = recvfrom(raw_sd, mipd_buffer, sizeof(mipd_buffer), 0, (struct sockaddr *) &recv_addr, &addr_len);;
 
-				    	memset(mipd_buffer, 0, sizeof(mipd_buffer));
-				    	recvfrom(raw_sd, mipd_buffer, sizeof(mipd_buffer), 0, NULL, NULL);
-				    	eth_pdu received_eth_pdu;
-				    	deserialize_eth_pdu(&received_eth_pdu, mipd_buffer);
-				    	if (received_eth_pdu.mip_pdu.header.sdu_type == PING_SDU_TYPE) {
-				    		mip_ping_sdu* ping_response = (mip_ping_sdu*)received_eth_pdu.mip_pdu.sdu;
-				    		ping_response->mip_address = received_eth_pdu.mip_pdu.header.source_address;
+						// check if timeout
+						if (received_bytes == -1) {
+							printf("Timeout, no ARP response received\n");
+							continue;
+						}
+						if (received_bytes == 0) {
+							printf("No ARP response received\n");
+							continue;
+						}
+						eth_pdu received_eth_pdu;
+						deserialize_eth_pdu(&received_eth_pdu, mipd_buffer);
+						if (received_eth_pdu.mip_pdu.header.sdu_type == ARP_SDU_TYPE) {
+							mip_arp_sdu* arp_response = (mip_arp_sdu*)received_eth_pdu.mip_pdu.sdu;
+							if (arp_response->type == ARP_RESPONSE_TYPE) {
+								insert_cache_index(&arp_cache, received_eth_pdu.mip_pdu.header.source_address, received_eth_pdu.header.source_address, recv_addr);
+								if (debug) {
+									printf("Received ARP response:\n");
+									print_arp_cache(&arp_cache, 4);
+								}
+							}
+						}
+						dest = get_mac_address(&arp_cache, ping_pdu.header.dest_address);
+					}
+					else if (debug) {
+						printf("Destination in cache\n");
+					}
 
-				    		printf("Received ping response from %d: %s\n", received_eth_pdu.mip_pdu.header.source_address, ping_response->message);
-				    		// send ping response to node
-				    		size_t padded_length = serialize_mip_ping_sdu(node_buffer, ping_response);
-				    		write(node_fd, node_buffer, padded_length);
-				    		free(ping_response->message);
-				    	}
+					send_packet_on_raw_socket(&ping_pdu, dest->mac_address, &dest->ll_addr);
 
+					// we have sent the packet and can free the allocated memory
+					free(((mip_ping_sdu*)ping_pdu.sdu)->message);
+
+					// Receive the ping response
+					memset(mipd_buffer, 0, sizeof(mipd_buffer));
+					size_t received_bytes = recvfrom(raw_sd, mipd_buffer, sizeof(mipd_buffer), 0, NULL, NULL);
+					if (received_bytes == -1) {
+						perror("recvfrom");
+						exit(EXIT_FAILURE);
+					}
+					eth_pdu received_eth_pdu;
+					deserialize_eth_pdu(&received_eth_pdu, mipd_buffer);
+					if (debug) {
+						printf("Received ping response:\n");
+						print_eth_pdu(&received_eth_pdu, 4);
+					}
+					if (received_eth_pdu.mip_pdu.header.sdu_type == PING_SDU_TYPE) {
+						mip_ping_sdu* ping_response = (mip_ping_sdu*)received_eth_pdu.mip_pdu.sdu;
+						ping_response->mip_address = received_eth_pdu.mip_pdu.header.source_address;
+
+						if (debug) {
+							printf("Forwarding ping response to ping_client\n");
+							print_mip_ping_sdu(ping_response, 4);
+						}
+						// send ping response to node
+						size_t padded_length = serialize_mip_ping_sdu(node_buffer, ping_response);
+						size_t written_bytes = write(node_fd, node_buffer, padded_length);
+						if (written_bytes == -1) {
+							perror("write");
+							exit(EXIT_FAILURE);
+						}
+						free(ping_response->message);
 					}
 				}
 			}

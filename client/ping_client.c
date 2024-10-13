@@ -44,6 +44,8 @@ int main(int argc, char** argv)
 		exit(EXIT_FAILURE);
 	}
 
+
+
 	// reserve space for abstract namespace character
 	char sock_path_buf[sizeof(addr.sun_path) - 1];
 	sock_path_buf[0] = '\0';
@@ -82,46 +84,39 @@ int main(int argc, char** argv)
 		exit(EXIT_FAILURE);
 	}
 
-	/*
-	if (setsockopt(sd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == -1) {
-		perror("setsockopt");
-		close(sd);
-		exit(EXIT_FAILURE);
-	}
-	*/
-
 	size_t padded_length = serialize_mip_ping_sdu(mip_sdu_buf, &ping_sdu);
-	printf("Writing to server\n");
+	printf("Writing \"%s\" to server: %d\n", msg_buffer, dest_host);
 	// start counter to measrure RTT
-	struct timeval start;
-	gettimeofday(&start, NULL);
 	rc = write(sd, mip_sdu_buf, padded_length);
-
 	if (rc < 0) {
 		perror("write");
 		close(sd);
 		exit(EXIT_FAILURE);
 	}
+
+	struct timeval start;
+	gettimeofday(&start, NULL);
+
+	if (setsockopt(sd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == -1) {
+		perror("setsockopt");
+		close(sd);
+		exit(EXIT_FAILURE);
+	}
+
 	// Receive message
 	ssize_t bytes_received = recv(sd, mip_sdu_buf, sizeof(mip_sdu_buf), 0);
 
-	// print time since start
-	struct timeval end;
-	gettimeofday(&end, NULL);
-	printf("Time since start: %ld ms\n", (end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) / 1000);
 	// check error from recv
 	if (bytes_received == 0) {
 		fprintf(stderr, "Connection closed\n");
 	}
 	if (bytes_received == -1) {
-		printf("errno: %d\n", errno);
-		perror("recv");
-
-	}
-
-	if (bytes_received == -1) {
 		if (errno == EAGAIN || errno == EWOULDBLOCK) {
 			fprintf(stderr, "Timeout\n");
+			// print time
+			struct timeval end;
+			gettimeofday(&end, NULL);
+			printf("RTT: %ld ms\n", (end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) / 1000);
 		} else {
 			perror("recv");
 		}
@@ -137,6 +132,10 @@ int main(int argc, char** argv)
 		if (strcmp(rec_ping_sdu.message, mip_sdu_buf) == 0) {
 			printf("RTT: %ld ms\n", (end.tv_sec - start.tv_sec) * 1000 + (end.tv_usec - start.tv_usec) / 1000);
 			print_mip_ping_sdu(&rec_ping_sdu, 2);
+		}
+		else {
+			printf("String did not match\n");
+			print_mip_ping_sdu(&rec_ping_sdu, 4);
 		}
 		free(rec_ping_sdu.message);
 	}
