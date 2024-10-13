@@ -11,7 +11,6 @@
 // length field is 2 ^ 9, so max value is 511
 // length field gives number of 32 bit words, so max number of bytes is 511 * 4
 #define MIP_SDU_MAX_LENGTH 511 * 4
-// due to packing (?)
 
 /**
  * Struct to hold a MIP ping SDU
