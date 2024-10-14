@@ -72,7 +72,7 @@ void deserialize_mip_ping_sdu(mip_ping_sdu* target, const uint8_t* buffer);
 /**
 * Serialize a mip_arp_sdu struct to a byte array
 *
-* @param target The byte array to serialize to (must be allocated by the caller to a size of: sizeof(mip_header) + pdu->header->sdu_len)
+* @param target The byte array to serialize to (must be allocated by the caller to a size of: sizeof(mip_header) + pdu->header->sdu_len * 4)
 * @param pdu The mip_pdu struct to serialize.
 *      if pdu->header->sdu_type is ARP_SDU_TYPE, pdu->sdu must be a mip_arp_sdu struct.
 *      if pdu->header->sdu_type is PING_SDU_TYPE, pdu->sdu must be a mip_ping_sdu struct.
