@@ -1,4 +1,7 @@
+#include <time.h>
 #define _DEFAULT_SOURCE
+#define _POSIX_SOURCE
+#include <signal.h>
 #include <stdio.h>	/* standard input/output library functions */
 #include <stdlib.h>	/* standard library definitions (macros) */
 #include <unistd.h>	/* standard symbolic constants and types */
@@ -11,7 +14,6 @@
 #include <sys/un.h>	/* definitions for UNIX domain sockets */
 #include <stdint.h>
 #include <linux/if_packet.h>	/* AF_PACKET */
-#include <signal.h>
 #include <bits/sigaction.h>
 
 #include <netinet/in.h>
@@ -71,13 +73,13 @@ static int add_to_epoll_table(int efd, struct epoll_event *ev, int fd);
  * @brief Function to send a packet on the raw socket, using the raw_sd global variable
  *
  * @param packet The packet to send
- * @param mac_dest The MAC address of the destination
+ * @param mac_dest The destination MAC address
  * @param addr The sockaddr_ll struct of the interface to send the packet on
  */
 static void send_packet_on_raw_socket(const mip_pdu* packet, const uint8_t* mac_dest, const struct sockaddr_ll* addr);
 
 /**
- * @brief Broadcast MIP-ARP request on all available interfaces, looking for a given MIP address
+ * @brief Broadcast MIP-ARP request on all available interfaces
  *
  * @param mip_dest_address The MIP address to send the broadcast for
  */
@@ -193,13 +195,6 @@ static void send_packet_on_raw_socket(const mip_pdu* packet, const uint8_t* mac_
 		printf("Sending eth packet:\n");
 		print_eth_pdu(&ping_eth_pdu, 4);
 		print_arp_cache(&arp_cache, 4);
-	}
-	// deserialize mipd_buffer
-	eth_pdu received_mip_pdu2;
-	deserialize_eth_pdu(&received_mip_pdu2, mipd_buffer);
-	if (debug) {
-		printf("Deserialized eth packet:\n");
-		print_eth_pdu(&received_mip_pdu2, 4);
 	}
 
 	ssize_t sent_bytes = sendto(raw_sd, mipd_buffer, ETH_HEADER_LEN + mip_pdu_size, 0, (const struct sockaddr *)addr, sizeof(*addr));
@@ -408,9 +403,6 @@ static void server(const char* socket_upper)
 						.mip_address = received_eth_pdu.mip_pdu.header.source_address,
 						.message = ((mip_ping_sdu*) received_eth_pdu.mip_pdu.sdu)->message,
 					};
-					printf("message length received on raw socket %ld\n", strlen(ping_sdu.message));
-					printf("sdu_len received on raw socket: %d\n", received_eth_pdu.mip_pdu.header.sdu_len);
-					printf("Number of received bytes: %ld\n", received_bytes);
 
 					size_t padded_length = serialize_mip_ping_sdu(node_buffer, &ping_sdu);
 					// check if unix_sd is a valid file descriptor
@@ -536,10 +528,17 @@ static void server(const char* socket_upper)
 								}
 							}
 						}
+						free_mip_pdu(&received_eth_pdu.mip_pdu);
 						dest = get_mac_address(&arp_cache, ping_pdu.header.dest_address);
 					}
 					else if (debug) {
 						printf("Destination in cache\n");
+					}
+
+					// Dest should not be NULL here, as we should have received an ARP response 
+					if (dest == NULL) {
+						printf("ERROR, did not receive proper response to ARP request");
+						continue;
 					}
 
 					send_packet_on_raw_socket(&ping_pdu, dest->mac_address, &dest->ll_addr);
@@ -575,8 +574,8 @@ static void server(const char* socket_upper)
 							perror("write");
 							exit(EXIT_FAILURE);
 						}
-						free(ping_response->message);
 					}
+					free_mip_pdu(&received_eth_pdu.mip_pdu);
 				}
 			}
 		}

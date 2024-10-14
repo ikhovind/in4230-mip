@@ -83,7 +83,8 @@ void serialize_mip_pdu(uint8_t* target, const mip_pdu* pdu);
 /**
  * @brief Free memory allocated by deserialize_mip_pdu
  *
- * Frees both the memory allocated for the sdu field of the mip_pdu struct and the message field of the mip_ping_sdu struct.
+ * Frees both the memory allocated for the sdu field of the mip_pdu struct and the message field of the mip_ping_sdu
+ * struct if the sdu_type is PING_SDU_TYPE.
  *
  * @param pdu The mip_pdu struct to free
  */
