@@ -34,9 +34,15 @@ int main(int argc, char** argv) {
 			case 'h':
 				printf("Usage: %s "
 				       "[-h] "
-				       "<socket_lower>", argv[0]);
+				       "<socket_lower>\n", argv[0]);
 				exit(0);
 		}
+	}
+
+	if (argc < 2)
+	{
+		printf("Too few arguments, <socket_lower> is mandatory: ./ping_server [-h] <socket_lower>\n");
+		exit(EXIT_FAILURE);
 	}
 
 	uint8_t pos_arg_start = 1;
