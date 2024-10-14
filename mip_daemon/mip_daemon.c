@@ -1,6 +1,6 @@
-#include <time.h>
 #define _DEFAULT_SOURCE
 #define _POSIX_SOURCE
+#include <time.h>
 #include <signal.h>
 #include <stdio.h>	/* standard input/output library functions */
 #include <stdlib.h>	/* standard library definitions (macros) */
@@ -20,6 +20,7 @@
 
 #include <fcntl.h>
 #include <ifaddrs.h>
+#include <bits/getopt_core.h>
 
 #include "../packet_builder/eth_builder.h"
 #include "../cache/arp_cache.h"
@@ -501,9 +502,10 @@ static void server(const char* socket_upper)
 						// Timeout since we don't know if we can reach the address
 						struct timeval tv;
 						tv.tv_sec = 0;
-						// 0.5 seconds
-						tv.tv_usec = 500000;
-						//setsockopt(raw_sd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+						// 0.3 seconds
+						tv.tv_usec = 300000;
+						// set timeout of 0.3 seconds
+						setsockopt(raw_sd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
 						int received_bytes = recvfrom(raw_sd, mipd_buffer, sizeof(mipd_buffer), 0, (struct sockaddr *) &recv_addr, &addr_len);;
 
