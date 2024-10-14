@@ -32,13 +32,13 @@ int main(int argc, char** argv)
 				printf("Usage: %s "
 				       "[-h] "
 				       "<socket_lower> "
-				       "<mip destination address>"
-				       "<message>", argv[0]);
+				       "<mip destination address> "
+				       "<message>\n", argv[0]);
 				exit(0);
 		}
 	}
 
-	if (argc < 3)
+	if (argc < 4)
 	{
 		printf("Too few arguments, socket_lower, destination_host and message are mandatory: ./ping_client [-h] <socket_lower> <destination host> <message>\n");
 		exit(EXIT_FAILURE);

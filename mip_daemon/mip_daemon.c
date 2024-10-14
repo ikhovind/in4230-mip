@@ -588,12 +588,6 @@ int main(const int argc, char **argv)
 {
 	int opt; 
 
-	if (argc < 3)
-	{
-		printf("Too few arguments, socket_upper and MIP address are mandatory: mipd [-h] [-d] <socket_upper> <MIP address>\n");
-		exit(EXIT_FAILURE);
-	}
-	
 	while ((opt = getopt(argc, argv, "dh")) != -1) {
 		switch (opt) {
 		case 'd':
@@ -602,9 +596,15 @@ int main(const int argc, char **argv)
 			break;
 		case 'h':
 			printf("Usage: %s "
-			       "mipd [-h] [-d] <socket_upper> <MIP address>\n", argv[0]);
+			       "[-h] [-d] <socket_upper> <MIP address>\n", argv[0]);
 			exit(0);
 		}
+	}
+
+	if (argc < 3)
+	{
+		printf("Too few arguments, socket_upper and MIP address are mandatory: mipd [-h] [-d] <socket_upper> <MIP address>\n");
+		exit(EXIT_FAILURE);
 	}
 
 	uint8_t pos_arg_start = 1;
