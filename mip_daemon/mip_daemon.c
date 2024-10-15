@@ -502,9 +502,9 @@ static void server(const char* socket_upper)
 						// Timeout since we don't know if we can reach the address
 						struct timeval tv;
 						tv.tv_sec = 0;
-						// 0.3 seconds
-						tv.tv_usec = 300000;
-						// set timeout of 0.3 seconds
+						// 0.5 seconds
+						tv.tv_usec = 500000;
+						// set timeout of 0.5 seconds
 						setsockopt(raw_sd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
 						int received_bytes = recvfrom(raw_sd, mipd_buffer, sizeof(mipd_buffer), 0, (struct sockaddr *) &recv_addr, &addr_len);;
