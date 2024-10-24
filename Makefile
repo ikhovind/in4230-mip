@@ -2,34 +2,22 @@
 CC = gcc
 CFLAGS = -std=c11 -I./include
 
-# Source files and their corresponding object files
-SRC_MIP_BUILDER = ./packet_builder/mip_builder.c
-OBJ_MIP_BUILDER = $(SRC_MIP_BUILDER:.c=.o)
+# Source directories
+SRC_DIRS := packet_builder cache network_interface client mip_daemon server
+TEST_DIRS := tests
 
-SRC_ETH_BUILDER = ./packet_builder/eth_builder.c
-OBJ_ETH_BUILDER = $(SRC_ETH_BUILDER:.c=.o)
+# Source files
+SRC_FILES := $(wildcard $(addsuffix /*.c, $(SRC_DIRS)))
+# Object files corresponding to source files
+OBJ_FILES := $(SRC_FILES:.c=.o)
 
-SRC_ARP_CACHE = ./cache/arp_cache.c
-OBJ_ARP_CACHE = $(SRC_ARP_CACHE:.c=.o)
+TEST_SRC_FILES := $(wildcard $(addsuffix /*.c, $(TEST_DIRS)))
+TEST_OBJ_FILES := $(TEST_SRC_FILES:.c=.o)
 
-SRC_NETWORK_UTIL = ./network_interface/network_util.c
-OBJ_NETWORK_UTIL = $(SRC_NETWORK_UTIL:.c=.o)
-
-SRC_PING_CLIENT = ./client/ping_client.c
-OBJ_PING_CLIENT = $(SRC_PING_CLIENT:.c=.o)
-
-SRC_MIP_DAEMON = ./mip_daemon/mip_daemon.c
-OBJ_MIP_DAEMON = $(SRC_MIP_DAEMON:.c=.o)
-
-SRC_PING_SERVER = ./server/ping_server.c
-OBJ_PING_SERVER = $(SRC_PING_SERVER:.c=.o)
-
-
+# Unity and test files
 SRC_UNITY = ./tests/Unity/src/unity.c
 OBJ_UNITY = $(SRC_UNITY:.c=.o)
-SRC_TEST = ./tests/test_serialization.c
-OBJ_TEST = $(SRC_TEST:.c=.o)
-UNITY_INC_DIRS=-Isrc -I./tests/Unity/src
+UNITY_INC_DIRS = -Isrc -I./tests/Unity/src
 
 # Targets
 TARGET_PING_CLIENT = ping_client
@@ -37,26 +25,31 @@ TARGET_MIP_DAEMON = mipd
 TARGET_PING_SERVER = ping_server
 TARGET_TEST_SERIALIZATION = serialize
 
+# Specific object files
+OBJ_PING_CLIENT = client/ping_client.o
+OBJ_MIP_DAEMON = mip_daemon/mip_daemon.o
+OBJ_PING_SERVER = server/ping_server.o
+OBJ_COMMON = $(filter-out $(OBJ_PING_CLIENT) $(OBJ_MIP_DAEMON) $(OBJ_PING_SERVER), $(OBJ_FILES))
+
 # Default target
 all: $(TARGET_MIP_DAEMON) $(TARGET_PING_CLIENT) $(TARGET_PING_SERVER)
 
+
 # Rule to build ping_client
-$(TARGET_PING_CLIENT): $(OBJ_ARP_CACHE) $(OBJ_MIP_BUILDER) $(OBJ_NETWORK_UTIL)  $(OBJ_PING_CLIENT) $(OBJ_ETH_BUILDER)
-	$(CC) $(CFLAGS) -o $(TARGET_PING_CLIENT) $(OBJ_MIP_BUILDER) $(OBJ_ARP_CACHE) $(OBJ_NETWORK_UTIL)  $(OBJ_PING_CLIENT) $(OBJ_ETH_BUILDER)
+$(TARGET_PING_CLIENT): $(OBJ_COMMON) $(OBJ_PING_CLIENT)
+	$(CC) $(CFLAGS) -o $@ $^
 
 # Rule to build mipd
-$(TARGET_MIP_DAEMON): $(OBJ_MIP_DAEMON) $(OBJ_NETWORK_UTIL) $(OBJ_MIP_BUILDER) $(OBJ_ARP_CACHE) $(OBJ_ETH_BUILDER)
-	$(CC) $(CFLAGS) -o $(TARGET_MIP_DAEMON)  $(OBJ_MIP_DAEMON) $(OBJ_NETWORK_UTIL) $(OBJ_MIP_BUILDER) $(OBJ_ARP_CACHE) $(OBJ_ETH_BUILDER)
+$(TARGET_MIP_DAEMON): $(OBJ_COMMON) $(OBJ_MIP_DAEMON)
+	$(CC) $(CFLAGS) -o $@ $^
 
 # Rule to build ping_server
-$(TARGET_PING_SERVER): $(OBJ_NETWORK_UTIL) $(OBJ_PING_SERVER) $(OBJ_MIP_BUILDER)
-	$(CC) $(CFLAGS) -o $(TARGET_PING_SERVER) $(OBJ_NETWORK_UTIL) $(OBJ_PING_SERVER) $(OBJ_MIP_BUILDER)
+$(TARGET_PING_SERVER): $(OBJ_COMMON) $(OBJ_PING_SERVER)
+	$(CC) $(CFLAGS) -o $@ $^
 
-test: $(OBJ_MIP_BUILDER) $(OBJ_UNITY) $(OBJ_TEST) $(OBJ_ETH_BUILDER)
-	$(CC) $(CFLAGS) -o $(TARGET_TEST_SERIALIZATION) $(OBJ_UNITY) $(OBJ_MIP_BUILDER) $(OBJ_TEST) $(OBJ_ETH_BUILDER)
-
-
-
+# Rule to build test serialization
+test: $(OBJ_UNITY) $(TEST_OBJ_FILES) $(OBJ_COMMON)
+	$(CC) $(UNITY_INC_DIRS) -o $(TARGET_TEST_SERIALIZATION) $^
 
 # Rule to build all .o files from their corresponding .c files
 %.o: %.c
@@ -64,7 +57,6 @@ test: $(OBJ_MIP_BUILDER) $(OBJ_UNITY) $(OBJ_TEST) $(OBJ_ETH_BUILDER)
 
 # Clean rule to remove generated files
 clean:
-	rm -f $(OBJ_ARP_CACHE) $(OBJ_NETWORK_UTIL)  $(OBJ_PING_CLIENT) $(OBJ_MIP_DAEMON) $(OBJ_PING_SERVER) $(OBJ_MIP_BUILDER) $(OBJ_ETH_BUILDER)
-	rm -f $(TARGET_MIP_DAEMON) $(TARGET_PING_CLIENT) $(TARGET_PING_SERVER)
+	rm -f $(OBJ_FILES) $(TARGET_MIP_DAEMON) $(TARGET_PING_CLIENT) $(TARGET_PING_SERVER) $(TARGET_TEST_SERIALIZATION) $(OBJ_UNITY) $(TEST_OBJ_FILES)
 
-.PHONY: all clean
+.PHONY: all clean test

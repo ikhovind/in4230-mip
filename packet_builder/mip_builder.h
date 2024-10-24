@@ -4,13 +4,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "routing_builder.h"
+
 #define PING_SDU_TYPE 0x02
 #define ARP_SDU_TYPE 0x01
+#define ROUTING_SDU_TYPE 0x04
 #define ARP_REQUEST_TYPE 0x0
 #define ARP_RESPONSE_TYPE 0x1
 // length field is 2 ^ 9, so max value is 511
 // length field gives number of 32 bit words, so max number of bytes is 511 * 4
 #define MIP_SDU_MAX_LENGTH 511 * 4
+#define MIP_TTL_DEFAULT 1
 
 /**
  * Struct to hold a MIP ping SDU

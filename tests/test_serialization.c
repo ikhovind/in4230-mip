@@ -115,7 +115,7 @@ void test_serialize_eth_pdu(void) {
 
     uint8_t dest_address[6] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05};
     uint8_t source_address[6] = {0x05, 0x04, 0x03, 0x02, 0x01, 0x00};
-    uint16_t ethertype = ETH_MIP_TYPE;
+    uint16_t ethertype = ETH_P_MIP;
 
     build_eth_header(&header, dest_address, source_address, 0x88b);
     build_mip_pdu(&mipPdu, &sdu, 100, 200, 1, PING_SDU_TYPE);
@@ -155,7 +155,7 @@ void test_serialize_eth_pdu_with_arp_mip() {
 
     uint8_t dest_address[6] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05};
     uint8_t source_address[6] = {0x05, 0x04, 0x03, 0x02, 0x01, 0x00};
-    uint16_t ethertype = ETH_MIP_TYPE;
+    uint16_t ethertype = ETH_P_MIP;
 
     build_eth_header(&header, dest_address, source_address, 0x88b);
     build_mip_pdu(&mipPdu, &sdu, 100, 200, 1, ARP_SDU_TYPE);

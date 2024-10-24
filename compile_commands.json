@@ -1,0 +1,100 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-std=c11",
+      "-I./include",
+      "-c",
+      "-o",
+      "mip_daemon/mip_daemon.o",
+      "mip_daemon/mip_daemon.c"
+    ],
+    "directory": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1",
+    "file": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1/mip_daemon/mip_daemon.c",
+    "output": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1/mip_daemon/mip_daemon.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-std=c11",
+      "-I./include",
+      "-c",
+      "-o",
+      "network_interface/network_util.o",
+      "network_interface/network_util.c"
+    ],
+    "directory": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1",
+    "file": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1/network_interface/network_util.c",
+    "output": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1/network_interface/network_util.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-std=c11",
+      "-I./include",
+      "-c",
+      "-o",
+      "packet_builder/mip_builder.o",
+      "packet_builder/mip_builder.c"
+    ],
+    "directory": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1",
+    "file": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1/packet_builder/mip_builder.c",
+    "output": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1/packet_builder/mip_builder.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-std=c11",
+      "-I./include",
+      "-c",
+      "-o",
+      "cache/arp_cache.o",
+      "cache/arp_cache.c"
+    ],
+    "directory": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1",
+    "file": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1/cache/arp_cache.c",
+    "output": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1/cache/arp_cache.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-std=c11",
+      "-I./include",
+      "-c",
+      "-o",
+      "packet_builder/eth_builder.o",
+      "packet_builder/eth_builder.c"
+    ],
+    "directory": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1",
+    "file": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1/packet_builder/eth_builder.c",
+    "output": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1/packet_builder/eth_builder.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-std=c11",
+      "-I./include",
+      "-c",
+      "-o",
+      "client/ping_client.o",
+      "client/ping_client.c"
+    ],
+    "directory": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1",
+    "file": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1/client/ping_client.c",
+    "output": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1/client/ping_client.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/gcc",
+      "-std=c11",
+      "-I./include",
+      "-c",
+      "-o",
+      "server/ping_server.o",
+      "server/ping_server.c"
+    ],
+    "directory": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1",
+    "file": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1/server/ping_server.c",
+    "output": "/home/ikhovind/Documents/Skole/H2024/IN4230 - Networking/hjemmeeksamen1/server/ping_server.o"
+  }
+]

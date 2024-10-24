@@ -117,6 +117,9 @@ void print_mip_pdu(const mip_pdu* pdu, int indent) {
 }
 
 void build_mip_pdu(mip_pdu* target, const void* sdu, uint8_t source_address, uint8_t dest_address, uint8_t ttl, uint8_t sdu_type) {
+    if (ttl == 0) {
+        ttl = MIP_TTL_DEFAULT;
+    }
     if (sdu_type == PING_SDU_TYPE) {
         mip_ping_sdu* ping_sdu = (mip_ping_sdu*) sdu;
         target->header.dest_address = dest_address;

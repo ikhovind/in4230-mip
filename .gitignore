@@ -9,3 +9,4 @@ serialize
 *.o
 *.out
 .ropeproject
+.cache
